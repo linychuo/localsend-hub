@@ -10,8 +10,11 @@
 </head>
 <body>
     <div class="app-container">
+        <!-- Sidebar Overlay (Mobile) -->
+        <div class="sidebar-overlay" id="sidebarOverlay"></div>
+
         <!-- Sidebar -->
-        <aside class="sidebar">
+        <aside class="sidebar" id="sidebar">
             <div class="sidebar-header">
                 <div class="logo">
                     <i class="fas fa-paper-plane"></i>
@@ -61,6 +64,9 @@
             <!-- Top Bar -->
             <header class="top-bar">
                 <div class="top-bar-left">
+                    <button class="menu-toggle" id="menuToggle" aria-label="Toggle menu">
+                        <i class="fas fa-bars"></i>
+                    </button>
                     <h1 id="pageTitle">Dashboard</h1>
                 </div>
                 <div class="top-bar-right">

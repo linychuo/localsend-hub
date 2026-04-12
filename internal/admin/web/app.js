@@ -5,8 +5,32 @@ const state = {
     files: [],
     identity: {},
     autoRefreshInterval: null,
-    startTime: Date.now()
+    startTime: Date.now(),
+    sidebarOpen: false
 };
+
+// ===== Mobile Sidebar =====
+function toggleSidebar() {
+    const sidebar = document.getElementById('sidebar');
+    const overlay = document.getElementById('sidebarOverlay');
+    state.sidebarOpen = !state.sidebarOpen;
+
+    if (state.sidebarOpen) {
+        sidebar.classList.add('open');
+        overlay.classList.add('active');
+    } else {
+        sidebar.classList.remove('open');
+        overlay.classList.remove('active');
+    }
+}
+
+function closeSidebar() {
+    const sidebar = document.getElementById('sidebar');
+    const overlay = document.getElementById('sidebarOverlay');
+    state.sidebarOpen = false;
+    sidebar.classList.remove('open');
+    overlay.classList.remove('active');
+}
 
 // ===== Navigation =====
 function navigateToTab(tabName) {
@@ -32,6 +56,7 @@ function navigateToTab(tabName) {
     document.getElementById('pageTitle').textContent = titles[tabName];
     
     state.currentTab = tabName;
+    closeSidebar();
     
     // Load data for the tab
     if (tabName === 'dashboard') {
@@ -369,7 +394,11 @@ document.addEventListener('DOMContentLoaded', () => {
             navigateToTab(tab);
         });
     });
-    
+
+    // Mobile menu toggle
+    document.getElementById('menuToggle').addEventListener('click', toggleSidebar);
+    document.getElementById('sidebarOverlay').addEventListener('click', closeSidebar);
+
     // Load initial data
     loadConfig();
     loadIdentity();
@@ -404,3 +433,5 @@ window.loadFiles = loadFiles;
 window.loadLogs = loadLogs;
 window.refreshData = refreshData;
 window.toggleTheme = toggleTheme;
+window.toggleSidebar = toggleSidebar;
+window.closeSidebar = closeSidebar;
