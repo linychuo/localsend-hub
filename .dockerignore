@@ -1,0 +1,38 @@
+# Build output
+localsend-hub
+
+# Git
+.git
+.gitignore
+
+# Data directories
+received
+data
+
+# IDE / Editor
+.vscode
+.idea
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Documentation (not needed in image)
+*.md
+LICENSE
+
+# Docker files (not needed inside image)
+Dockerfile
+.dockerignore
+docker-compose.yml
+docker.sh
+build.sh
+
+# GitHub
+.github
+
+# Qwen
+.qwen
+QWEN.md

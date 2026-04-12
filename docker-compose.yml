@@ -1,0 +1,93 @@
+version: '3.8'
+
+# LocalSend Hub - Docker Compose Configuration
+#
+# Usage:
+#   docker compose up -d
+
+services:
+  localsend-hub:
+    # Use official image from GitHub Container Registry
+    image: ghcr.io/linychuo/localsend-hub:latest
+
+    # Or build from source (uncomment if needed):
+    # build:
+    #   context: .
+    #   dockerfile: Dockerfile
+
+    container_name: localsend-hub
+    restart: unless-stopped
+
+    # ==========================================
+    # Environment Variables
+    # ==========================================
+    # Env vars override config file values at startup.
+    # Settings changed via Admin UI are saved to the config file.
+    #
+    # Uncomment to override specific settings:
+    #
+    environment:
+      - TZ=Asia/Shanghai
+      # - LOCALSEND_DEVICE_NAME=LocalSend Hub
+      # - LOCALSEND_RECEIVE_DIR=/app/received
+      # - LOCALSEND_MAX_LOGS=1000
+      # - LOCALSEND_PORT=53317
+      # - LOCALSEND_ADMIN_PORT=53318
+
+    # ==========================================
+    # Volume Mounts
+    # ==========================================
+    # Map to your host directories:
+    #
+    volumes:
+      # Store received files on host
+      - ./data/received:/app/received
+      # Store configuration on host
+      - ./data/config:/app/config
+
+    # ==========================================
+    # Port Mappings
+    # ==========================================
+    # 53317: LocalSend HTTPS receiver
+    # 53318: Admin Console (HTTP)
+    ports:
+      - "53317:53317"
+      - "53318:53318"
+
+    # ==========================================
+    # Network Configuration
+    # ==========================================
+    # For LAN multicast discovery, uncomment below:
+    # network_mode: host
+    # Note: When using host mode, remove the 'ports' section above
+
+    # ==========================================
+    # Resource Limits
+    # ==========================================
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: '0.50'
+        reservations:
+          memory: 64M
+          cpus: '0.25'
+
+    # ==========================================
+    # Logging Configuration
+    # ==========================================
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+    # ==========================================
+    # Health Check (Core Service)
+    # ==========================================
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "https://localhost:53317/api/localsend/v2/info", "--no-check-certificate"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s

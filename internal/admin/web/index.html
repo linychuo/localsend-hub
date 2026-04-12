@@ -1,0 +1,335 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LocalSend Hub Console</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+    <div class="app-container">
+        <!-- Sidebar -->
+        <aside class="sidebar">
+            <div class="sidebar-header">
+                <div class="logo">
+                    <i class="fas fa-paper-plane"></i>
+                    <span>LocalSend Hub</span>
+                </div>
+                <div class="status-badge">
+                    <span class="status-dot"></span>
+                    <span>Active</span>
+                </div>
+            </div>
+            
+            <nav class="sidebar-nav">
+                <a href="#" class="nav-item active" data-tab="dashboard">
+                    <i class="fas fa-chart-line"></i>
+                    <span>Dashboard</span>
+                </a>
+                <a href="#" class="nav-item" data-tab="files">
+                    <i class="fas fa-folder-open"></i>
+                    <span>Files</span>
+                </a>
+                <a href="#" class="nav-item" data-tab="logs">
+                    <i class="fas fa-clipboard-list"></i>
+                    <span>Transfer Logs</span>
+                </a>
+                <a href="#" class="nav-item" data-tab="settings">
+                    <i class="fas fa-cog"></i>
+                    <span>Settings</span>
+                </a>
+            </nav>
+            
+            <div class="sidebar-footer">
+                <div class="system-info">
+                    <div class="info-item">
+                        <i class="fas fa-hdd"></i>
+                        <span id="diskUsage">Calculating...</span>
+                    </div>
+                    <div class="info-item">
+                        <i class="fas fa-clock"></i>
+                        <span id="uptime">Uptime: --</span>
+                    </div>
+                </div>
+            </div>
+        </aside>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <!-- Top Bar -->
+            <header class="top-bar">
+                <div class="top-bar-left">
+                    <h1 id="pageTitle">Dashboard</h1>
+                </div>
+                <div class="top-bar-right">
+                    <button class="icon-btn" onclick="refreshData()" title="Refresh">
+                        <i class="fas fa-sync-alt"></i>
+                    </button>
+                    <button class="icon-btn" onclick="toggleTheme()" title="Toggle Theme">
+                        <i class="fas fa-moon"></i>
+                    </button>
+                </div>
+            </header>
+
+            <!-- Content Area -->
+            <div class="content-area">
+                <!-- Dashboard Tab -->
+                <div class="tab-content active" id="tab-dashboard">
+                    <!-- Stats Cards -->
+                    <div class="stats-grid">
+                        <div class="stat-card">
+                            <div class="stat-icon success">
+                                <i class="fas fa-check-circle"></i>
+                            </div>
+                            <div class="stat-info">
+                                <span class="stat-label">Successful Transfers</span>
+                                <span class="stat-value" id="successCount">0</span>
+                            </div>
+                        </div>
+                        
+                        <div class="stat-card">
+                            <div class="stat-icon danger">
+                                <i class="fas fa-times-circle"></i>
+                            </div>
+                            <div class="stat-info">
+                                <span class="stat-label">Failed Transfers</span>
+                                <span class="stat-value" id="failCount">0</span>
+                            </div>
+                        </div>
+                        
+                        <div class="stat-card">
+                            <div class="stat-icon info">
+                                <i class="fas fa-file-archive"></i>
+                            </div>
+                            <div class="stat-info">
+                                <span class="stat-label">Total Files</span>
+                                <span class="stat-value" id="totalFiles">0</span>
+                            </div>
+                        </div>
+                        
+                        <div class="stat-card">
+                            <div class="stat-icon warning">
+                                <i class="fas fa-database"></i>
+                            </div>
+                            <div class="stat-info">
+                                <span class="stat-label">Total Size</span>
+                                <span class="stat-value" id="totalSize">0 MB</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Quick Actions -->
+                    <div class="card">
+                        <div class="card-header">
+                            <h2><i class="fas fa-bolt"></i> Quick Actions</h2>
+                        </div>
+                        <div class="quick-actions">
+                            <button class="action-btn primary" onclick="navigateToTab('files')">
+                                <i class="fas fa-folder-open"></i>
+                                <span>Browse Files</span>
+                            </button>
+                            <button class="action-btn" onclick="clearLogs()">
+                                <i class="fas fa-trash-alt"></i>
+                                <span>Clear Logs</span>
+                            </button>
+                            <button class="action-btn" onclick="navigateToTab('settings')">
+                                <i class="fas fa-cog"></i>
+                                <span>Settings</span>
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Recent Activity -->
+                    <div class="card">
+                        <div class="card-header">
+                            <h2><i class="fas fa-history"></i> Recent Activity</h2>
+                            <button class="btn btn-sm btn-outline" onclick="navigateToTab('logs')">
+                                View All <i class="fas fa-arrow-right"></i>
+                            </button>
+                        </div>
+                        <div id="recentActivity" class="activity-list">
+                            <div class="loading-state">
+                                <i class="fas fa-spinner fa-spin"></i>
+                                <span>Loading activity...</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Files Tab -->
+                <div class="tab-content" id="tab-files">
+                    <div class="card full-height">
+                        <div class="card-header">
+                            <h2><i class="fas fa-folder-open"></i> Received Files</h2>
+                            <div class="card-actions">
+                                <button class="btn btn-sm btn-outline" onclick="loadFiles()">
+                                    <i class="fas fa-sync-alt"></i> Refresh
+                                </button>
+                            </div>
+                        </div>
+                        <div class="table-container">
+                            <table class="data-table">
+                                <thead>
+                                    <tr>
+                                        <th><i class="fas fa-file"></i> Filename</th>
+                                        <th><i class="fas fa-weight"></i> Size</th>
+                                        <th><i class="fas fa-calendar"></i> Modified</th>
+                                        <th><i class="fas fa-ellipsis-h"></i> Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="filesBody">
+                                    <tr>
+                                        <td colspan="4" class="empty-state">
+                                            <i class="fas fa-inbox fa-3x"></i>
+                                            <p>No files received yet</p>
+                                        </td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Logs Tab -->
+                <div class="tab-content" id="tab-logs">
+                    <div class="card full-height">
+                        <div class="card-header">
+                            <h2><i class="fas fa-clipboard-list"></i> Transfer Logs</h2>
+                            <div class="card-actions">
+                                <button class="btn btn-sm btn-outline" onclick="loadLogs()">
+                                    <i class="fas fa-sync-alt"></i> Refresh
+                                </button>
+                                <button class="btn btn-sm btn-danger" onclick="clearLogs()">
+                                    <i class="fas fa-trash"></i> Clear All
+                                </button>
+                            </div>
+                        </div>
+                        <div class="table-container">
+                            <table class="data-table">
+                                <thead>
+                                    <tr>
+                                        <th><i class="fas fa-clock"></i> Time</th>
+                                        <th><i class="fas fa-file"></i> Filename</th>
+                                        <th><i class="fas fa-weight"></i> Size</th>
+                                        <th><i class="fas fa-user"></i> Sender</th>
+                                        <th><i class="fas fa-info-circle"></i> Status</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="logsBody">
+                                    <tr>
+                                        <td colspan="5" class="empty-state">
+                                            <i class="fas fa-clipboard fa-3x"></i>
+                                            <p>No transfer logs yet</p>
+                                        </td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Settings Tab -->
+                <div class="tab-content" id="tab-settings">
+                    <!-- Device Identity -->
+                    <div class="card">
+                        <div class="card-header">
+                            <h2><i class="fas fa-id-badge"></i> Device Identity</h2>
+                        </div>
+                        <p class="card-description">
+                            Modify the device alias and model. Changes will take effect immediately in multicast broadcasts.
+                        </p>
+                        <div class="form-grid">
+                            <div class="form-group">
+                                <label for="inputAlias">
+                                    <i class="fas fa-tag"></i> Device Alias
+                                </label>
+                                <input type="text" id="inputAlias" placeholder="e.g., LocalSend Hub">
+                            </div>
+                            <div class="form-group">
+                                <label for="inputModel">
+                                    <i class="fas fa-server"></i> Device Model
+                                </label>
+                                <input type="text" id="inputModel" placeholder="e.g., Synology DS920+">
+                            </div>
+                            <div class="form-group">
+                                <label for="inputType">
+                                    <i class="fas fa-laptop"></i> Device Type
+                                </label>
+                                <select id="inputType">
+                                    <option value="server">Server</option>
+                                    <option value="desktop">Desktop</option>
+                                    <option value="mobile">Mobile</option>
+                                    <option value="web">Web</option>
+                                    <option value="headless">Headless</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="card-footer">
+                            <button class="btn btn-primary" onclick="saveIdentity()">
+                                <i class="fas fa-save"></i> Save Identity
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Storage Settings -->
+                    <div class="card">
+                        <div class="card-header">
+                            <h2><i class="fas fa-hdd"></i> Storage Settings</h2>
+                        </div>
+                        <div class="form-group">
+                            <label for="dirInput">
+                                <i class="fas fa-folder-open"></i> Receive Directory
+                            </label>
+                            <div class="input-group">
+                                <input type="text" id="dirInput" placeholder="Enter new receive directory path">
+                                <button class="btn btn-primary" onclick="saveConfig()">
+                                    <i class="fas fa-save"></i> Update Directory
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- System Info -->
+                    <div class="card">
+                        <div class="card-header">
+                            <h2><i class="fas fa-info-circle"></i> System Information</h2>
+                        </div>
+                        <div class="info-grid">
+                            <div class="info-row">
+                                <span class="info-label">Version</span>
+                                <span class="info-value">v1.0.0</span>
+                            </div>
+                            <div class="info-row">
+                                <span class="info-label">Core Port</span>
+                                <span class="info-value">53317 (HTTPS)</span>
+                            </div>
+                            <div class="info-row">
+                                <span class="info-label">Admin Port</span>
+                                <span class="info-value">53318 (HTTP)</span>
+                            </div>
+                            <div class="info-row">
+                                <span class="info-label">Receive Directory</span>
+                                <span class="info-value" id="sysReceiveDir">Loading...</span>
+                            </div>
+                            <div class="info-row">
+                                <span class="info-label">Multicast</span>
+                                <span class="info-value">224.0.0.167:53317</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- Toast Notification -->
+    <div id="toast" class="toast hidden">
+        <i class="fas fa-check-circle"></i>
+        <span id="toastMessage">Success!</span>
+    </div>
+
+    <script src="/app.js"></script>
+</body>
+</html>

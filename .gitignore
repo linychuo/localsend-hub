@@ -1,0 +1,10 @@
+# Build artifacts
+localsend-hub
+localsend-hub-admin
+
+# Uploaded files directory
+received/
+
+# Config and Data
+localsend_config.json
+data/

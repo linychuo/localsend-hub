@@ -1,0 +1,98 @@
+{
+  "arch": ["amd64", "arm64"],
+  "author": "linychuo",
+  "category": "Utilities",
+  "changelog": "Initial release with CasaOS support",
+  "description": "LocalSend Hub - High-performance LocalSend protocol receiver for file sharing across local network",
+  "developer": "linychuo",
+  "envs": [
+    {
+      "name": "LOCALSEND_DEVICE_NAME",
+      "type": "string",
+      "default": "LocalSend Hub",
+      "description": "Device name shown to senders",
+      "required": false
+    },
+    {
+      "name": "LOCALSEND_PORT",
+      "type": "number",
+      "default": 53317,
+      "description": "Core HTTPS port for LocalSend protocol",
+      "required": false
+    },
+    {
+      "name": "LOCALSEND_ADMIN_PORT",
+      "type": "number",
+      "default": 53318,
+      "description": "Admin web console port (localhost only)",
+      "required": false
+    },
+    {
+      "name": "LOCALSEND_RECEIVE_DIR",
+      "type": "string",
+      "default": "/app/received",
+      "description": "Directory to save received files",
+      "required": false
+    },
+    {
+      "name": "LOCALSEND_MAX_LOGS",
+      "type": "number",
+      "default": 1000,
+      "description": "Maximum number of log entries to keep",
+      "required": false
+    },
+    {
+      "name": "TZ",
+      "type": "string",
+      "default": "Asia/Shanghai",
+      "description": "Timezone for logging",
+      "required": false
+    }
+  ],
+  "hostname": "localsend-hub",
+  "icon": "https://raw.githubusercontent.com/linychuo/localsend-hub/main/.github/casaos-icon.png",
+  "image": "ghcr.io/linychuo/localsend-hub",
+  "index": "/",
+  "label": "LocalSend Hub",
+  "memory_limit": 256,
+  "network_mode": "bridge",
+  "ports": [
+    {
+      "container": "53317",
+      "host": "53317",
+      "protocol": "tcp",
+      "description": "LocalSend HTTPS"
+    },
+    {
+      "container": "53318",
+      "host": "53318",
+      "protocol": "tcp",
+      "description": "Admin Console"
+    }
+  ],
+  "restart": "unless-stopped",
+  "schema": 2,
+  "stores": {
+    "CasaOS": {
+      "tip": "Supports environment variable configuration in CasaOS UI"
+    }
+  },
+  "tagline": "LocalSend Protocol Receiver",
+  "tags": ["file-sharing", "localsend", "file-transfer", "lan"],
+  "thumbnail": "https://raw.githubusercontent.com/linychuo/localsend-hub/main/.github/casaos-thumbnail.png",
+  "title": {
+    "en": "LocalSend Hub"
+  },
+  "volume_mounts": [
+    {
+      "container": "/app/received",
+      "description": "Received files storage",
+      "type": "bind"
+    },
+    {
+      "container": "/app/config",
+      "description": "Configuration files",
+      "type": "bind"
+    }
+  ]
+}
