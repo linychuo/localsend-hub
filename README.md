@@ -13,7 +13,7 @@
 - **🔐 Native HTTPS** — Auto-generates RSA-2048 self-signed TLS certificates at startup. No external reverse proxy needed.
 - **📡 UDP Multicast Discovery** — Automatically announces availability to the local network using LocalSend protocol v2.
 - **📦 Seamless File Reception** — Stream-based file reception with automatic duplicate renaming (`file_timestamp.ext`).
-- **🛡️ Admin Dashboard** — Modern web UI at `0.0.0.0:53318` for monitoring transfers, managing files, and configuring settings.
+- **🛡️ Admin Dashboard** — Modern responsive web UI at `0.0.0.0:53318` for monitoring transfers, managing files, and configuring settings. Mobile-friendly with responsive layout.
 - **♻️ Resource Efficient** — Capped log buffer (1000 entries), ~9MB static binary, ~10MB memory footprint.
 - **🐳 Docker Ready** — Multi-stage build with health checks, resource limits, and volume persistence.
 - **🚀 Zero Dependencies** — Single static binary with no runtime dependencies. Deploy anywhere.
