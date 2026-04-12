@@ -8,3 +8,8 @@ received/
 # Config and Data
 localsend_config.json
 data/
+
+# SQLite database files (local)
+*.db
+*-wal
+*-shm

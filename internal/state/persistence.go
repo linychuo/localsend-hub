@@ -46,7 +46,6 @@ func (s *State) saveToFile() {
 		Alias:       s.Alias,
 		DeviceModel: s.DeviceModel,
 		DeviceType:  s.DeviceType,
-		Logs:        s.Logs,
 	}
 	s.mu.Unlock()
 
@@ -100,9 +99,6 @@ func (s *State) loadFromFile() bool {
 	}
 	if snapshot.DeviceType != "" {
 		s.DeviceType = snapshot.DeviceType
-	}
-	if snapshot.Logs != nil {
-		s.Logs = snapshot.Logs
 	}
 
 	return true

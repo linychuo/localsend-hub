@@ -44,6 +44,8 @@ services:
       - ./data/received:/app/received
       # Store configuration on host
       - ./data/config:/app/config
+      # Store SQLite log database on host
+      - ./data/sqlite:/app/data
 
     # ==========================================
     # Port Mappings

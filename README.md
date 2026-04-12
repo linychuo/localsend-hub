@@ -81,16 +81,18 @@ LocalSend Hub uses a **dual-service decoupled architecture** for fault isolation
         ┌──────────┤  │ - File Save  │      │ - API        │   │
         │          │  │ - Multicast  │      │ - Config     │   │
         ▼          │  └──────────────┘      └──────────────┘   │
-  Shared Config File (localsend_config.json)                   │
-  - Config  - Logs  - Device Identity                          │
-  (Polled every 2s by Admin Service)                           │
+  Shared Config File            ┌──────────────────┐            │
+  (localsend_config.json)       │ Shared SQLite DB │            │
+  - Config  - Device Identity   │ (Transfer Logs)  │            │
+                                └──────────────────┘            │
 └───────────────────────────────────────────────────────────────┘
+```
 
 **Key Benefits:**
 - **Fault Isolation**: If Admin Service crashes, Core Service continues receiving files
 - **Independent Scaling**: Each service can be deployed/scaled separately
 - **Clean Separation**: Clear boundaries between file reception and management concerns
-```
+- **Consistent Logs**: Both services share the same SQLite database, no stale data
 
 ## 📁 Project Structure
 
@@ -101,11 +103,14 @@ LocalSend Hub uses a **dual-service decoupled architecture** for fault isolation
 │   └── admin/
 │       └── main.go             # Admin service entry point
 ├── internal/                   # Private implementation (not importable)
-│   ├── state/                  # 💾 Thread-safe config, logs, sessions
+│   ├── state/                  # 💾 Thread-safe config, sessions
 │   │   ├── state.go            # Core service state management
 │   │   ├── admin_state.go      # Admin service state management
 │   │   ├── shared.go           # Shared types (LogEntry, ConfigData)
 │   │   └── admin_provider.go   # Interface for cross-process state
+│   │   └── persistence.go      # JSON config file I/O
+│   ├── db/                     # 🗄️ SQLite database layer
+│   │   └── logdb.go            # Transfer logs persistence
 │   ├── discovery/              # 📡 UDP multicast announcer
 │   │   └── multicast.go        # Periodic network discovery
 │   ├── core/                   # 🌐 HTTPS server + LocalSend handlers
@@ -177,6 +182,8 @@ Settings changed via the Admin UI are automatically saved to the config file. En
 
 LocalSend Hub persists configuration to `localsend_config.json`. In Docker, the default path is `/app/config/localsend_config.json` (mounted via volume). The file is auto-created on first run and saved every 15 seconds or on config change.
 
+Transfer logs are stored in a separate SQLite database (`localsend_logs.db`), ensuring real-time consistency between both services without file polling.
+
 ```json
 {
   "receiveDir": "./received",
@@ -222,6 +229,7 @@ docker run -d \
   --network host \
   -v $(pwd)/data/received:/app/received \
   -v $(pwd)/data/config:/app/config \
+  -v $(pwd)/data/sqlite:/app/data \
   ghcr.io/linychuo/localsend-hub:latest
 ```
 
@@ -241,6 +249,7 @@ docker run -d \
   -p 53318:53318 \
   -v $(pwd)/data/received:/app/received \
   -v $(pwd)/data/config:/app/config \
+  -v $(pwd)/data/sqlite:/app/data \
   localsend-hub
 ```
 
@@ -255,6 +264,7 @@ services:
     volumes:
       - ./data/received:/app/received
       - ./data/config:/app/config
+      - ./data/sqlite:/app/data
 ```
 
 > ⚠️ **Note**: `network_mode: host` removes network isolation. Only use on trusted networks.

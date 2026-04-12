@@ -41,6 +41,9 @@ RUN mkdir -p /app/received
 # Create directory for config
 RUN mkdir -p /app/config
 
+# Create directory for SQLite data
+RUN mkdir -p /app/data
+
 # Set permissions
 RUN chmod +x /app/localsend-hub /app/localsend-hub-admin
 
@@ -50,7 +53,7 @@ RUN chmod +x /app/localsend-hub /app/localsend-hub-admin
 EXPOSE 53317/tcp 53318/tcp
 
 # Volume for persistent data
-VOLUME ["/app/received", "/app/config"]
+VOLUME ["/app/received", "/app/config", "/app/data"]
 
 # Health check (core service)
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \

@@ -5,7 +5,8 @@ import (
 	"os"
 	"strconv"
 	"sync"
-	"time"
+
+	"localsend-hub/internal/db"
 )
 
 // State 核心服务状态 (仅核心服务使用)
@@ -17,8 +18,9 @@ type State struct {
 	CorePort  int // LocalSend 端口
 	AdminPort int // 管理面板端口
 
-	Logs       []LogEntry
-	MaxLogs    int
+	MaxLogs int
+	// LogDB SQLite 数据库实例 (跨进程共享)
+	LogDB *db.LogDB
 	// Sessions 记录 Session 信息，用于在 Upload 阶段获取文件名 (不持久化)
 	Sessions map[string]map[string]string
 	// 设备信息配置
@@ -59,21 +61,21 @@ func New() *State {
 	// 3. 环境变量覆盖 (最高优先级)
 	applyEnvOverrides(s)
 
+	// 初始化 SQLite 数据库
+	logDB, err := db.NewLogDB(s.MaxLogs)
+	if err != nil {
+		log.Printf("❌ Failed to initialize log database: %v", err)
+	} else {
+		s.LogDB = logDB
+		log.Println("✅ Log database initialized.")
+	}
+
 	log.Printf("   📁 Receive Directory: %s", s.ReceiveDir)
 	log.Printf("   🌐 LocalSend Port: %d (HTTPS)", s.CorePort)
 	log.Printf("   🛡️ Admin Console: http://127.0.0.1:%d", s.AdminPort)
 
 	// 确保接收目录存在
 	os.MkdirAll(s.ReceiveDir, 0755)
-
-	// 启动定时保存
-	go func() {
-		ticker := time.NewTicker(15 * time.Second)
-		defer ticker.Stop()
-		for range ticker.C {
-			s.saveToFile()
-		}
-	}()
 
 	return s
 }
@@ -165,45 +167,36 @@ func (s *State) ResolveFileName(sessionID, fileID, fallbackName string) string {
 
 // AddLog 线程安全地添加日志，并自动清理旧日志
 func (s *State) AddLog(filename string, size int64, sender string, status string) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	entry := LogEntry{
-		Time:     time.Now().Format("15:04:05"),
-		Filename: filename,
-		Size:     size,
-		Sender:   sender,
-		Status:   status,
+	if s.LogDB == nil {
+		log.Println("⚠️ Log database not initialized, skipping log entry")
+		return
 	}
-
-	s.Logs = append(s.Logs, entry)
-	// 环形缓冲逻辑：超出限制删掉最老的
-	if len(s.Logs) > s.MaxLogs {
-		s.Logs = s.Logs[1:]
+	if err := s.LogDB.AddLog(filename, size, sender, status); err != nil {
+		log.Printf("❌ Failed to add log entry: %v", err)
 	}
 }
 
-// GetLogs 线程安全地获取日志（倒序）
+// GetLogs 线程安全地获取日志（倒序，最新的在前）
 func (s *State) GetLogs() []LogEntry {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	// 复制并倒序
-	res := make([]LogEntry, len(s.Logs))
-	for i, v := range s.Logs {
-		res[len(s.Logs)-1-i] = v
+	if s.LogDB == nil {
+		return []LogEntry{}
 	}
-	return res
+	logs, err := s.LogDB.GetLogs()
+	if err != nil {
+		log.Printf("❌ Failed to get logs: %v", err)
+		return []LogEntry{}
+	}
+	return logs
 }
 
 // ClearLogs 清空日志
 func (s *State) ClearLogs() {
-	s.mu.Lock()
-	s.Logs = nil
-	s.mu.Unlock()
-	// 清空操作也需要保存，否则重启日志又回来了
-	// 注意: Save() 必须在锁外面调用，避免死锁
-	s.Save()
+	if s.LogDB == nil {
+		return
+	}
+	if err := s.LogDB.ClearLogs(); err != nil {
+		log.Printf("❌ Failed to clear logs: %v", err)
+	}
 }
 
 // SetReceiveDir 修改接收目录

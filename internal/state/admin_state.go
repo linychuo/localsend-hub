@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"sync"
 	"time"
+
+	"localsend-hub/internal/db"
 )
 
 // AdminState 管理服务状态 (仅管理服务使用)
@@ -14,13 +16,14 @@ import (
 type AdminState struct {
 	mu         sync.Mutex
 	ReceiveDir string
-	Alias       string
+	Alias      string
 	DeviceModel string
-	DeviceType  string
-	CorePort    int
-	AdminPort   int
-	MaxLogs     int
-	Logs        []LogEntry
+	DeviceType string
+	CorePort   int
+	AdminPort  int
+	MaxLogs    int
+	// LogDB SQLite 数据库实例 (跨进程共享)
+	LogDB *db.LogDB
 	// configPath 配置文件路径
 	configPath string
 	// watchInterval 配置文件监控间隔
@@ -46,6 +49,15 @@ func NewAdminState() *AdminState {
 
 	// 加载初始配置
 	s.loadFromConfigFile()
+
+	// 初始化 SQLite 数据库
+	logDB, err := db.NewLogDB(s.MaxLogs)
+	if err != nil {
+		log.Printf("❌ Admin: Failed to initialize log database: %v", err)
+	} else {
+		s.LogDB = logDB
+		log.Println("✅ Admin: Log database initialized.")
+	}
 
 	// 确保接收目录存在
 	os.MkdirAll(s.ReceiveDir, 0755)
@@ -121,9 +133,6 @@ func (s *AdminState) loadFromConfigFile() {
 	if config.DeviceType != "" {
 		s.DeviceType = config.DeviceType
 	}
-	if config.Logs != nil {
-		s.Logs = config.Logs
-	}
 }
 
 // saveToFile 将当前状态写入配置文件
@@ -145,7 +154,6 @@ func (s *AdminState) saveToFile() {
 		Alias:       s.Alias,
 		DeviceModel: s.DeviceModel,
 		DeviceType:  s.DeviceType,
-		Logs:        s.Logs,
 	}
 	s.mu.Unlock()
 
@@ -191,49 +199,27 @@ func (s *AdminState) SetDeviceIdentity(alias, model, deviceType string) {
 	s.saveToFile()
 }
 
-// AddLog 线程安全地添加日志
-func (s *AdminState) AddLog(filename string, size int64, sender string, status string) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	entry := LogEntry{
-		Time:     time.Now().Format("15:04:05"),
-		Filename: filename,
-		Size:     size,
-		Sender:   sender,
-		Status:   status,
-	}
-
-	s.Logs = append(s.Logs, entry)
-	// 环形缓冲逻辑：超出限制删掉最老的
-	if len(s.Logs) > s.MaxLogs {
-		s.Logs = s.Logs[1:]
-	}
-
-	// 保存到配置文件
-	s.saveToFile()
-}
-
-// GetLogs 线程安全地获取日志（倒序）
+// GetLogs 线程安全地获取日志（倒序，最新的在前）
 func (s *AdminState) GetLogs() []LogEntry {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	// 复制并倒序
-	res := make([]LogEntry, len(s.Logs))
-	for i, v := range s.Logs {
-		res[len(s.Logs)-1-i] = v
+	if s.LogDB == nil {
+		return []LogEntry{}
 	}
-	return res
+	logs, err := s.LogDB.GetLogs()
+	if err != nil {
+		log.Printf("❌ Admin: Failed to get logs: %v", err)
+		return []LogEntry{}
+	}
+	return logs
 }
 
-// ClearLogs 清空日志
+// ClearLogs 清空日志 (通过 SQLite)
 func (s *AdminState) ClearLogs() {
-	s.mu.Lock()
-	s.Logs = nil
-	s.mu.Unlock()
-	// 清空操作也需要保存
-	s.saveToFile()
+	if s.LogDB == nil {
+		return
+	}
+	if err := s.LogDB.ClearLogs(); err != nil {
+		log.Printf("❌ Admin: Failed to clear logs: %v", err)
+	}
 }
 
 // SetReceiveDir 修改接收目录

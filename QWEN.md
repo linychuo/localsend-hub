@@ -84,12 +84,14 @@ docker compose up -d
 │       └── main.go             # Admin service entry point
 ├── go.mod                      # Module definition
 ├── internal/                   # Private implementation details
-│   ├── state/                  # 💾 Global config, logs, thread-safe state
+│   ├── state/                  # 💾 Global config, thread-safe state
 │   │   ├── state.go            # Core service state management
 │   │   ├── admin_state.go      # Admin service state management
 │   │   ├── shared.go           # Shared types (LogEntry, ConfigData)
 │   │   ├── admin_provider.go   # Interface for cross-process state
 │   │   └── persistence.go      # JSON config file I/O
+│   ├── db/                     # 🗄️ SQLite database layer
+│   │   └── logdb.go            # Transfer logs persistence
 │   ├── discovery/              # 📡 UDP Multicast broadcasting
 │   │   └── multicast.go        # Periodic network discovery
 │   ├── core/                   # 🌐 HTTPS Server, TLS Cert Gen, LocalSend Handlers
@@ -107,7 +109,8 @@ docker compose up -d
 ├── localsend-hub                 # [Ignored] Core service binary (not in git)
 ├── localsend-hub-admin           # [Ignored] Admin service binary (not in git)
 ├── received/                   # [Ignored] Received files storage (not in git)
-├── localsend_config.json         # [Ignored] Auto-generated config file (shared)
+├── localsend_config.json         # [Ignored] Auto-generated config file (settings only)
+├── localsend_logs.db*            # [Ignored] SQLite transfer logs database (not in git)
 ├── DESIGN.md                   # Architecture design doc
 └── requirments.md              # Feature requirements
 ```
@@ -136,11 +139,11 @@ docker compose up -d
 
 - **Internal Packages**: Code in `internal/` cannot be imported by external modules (Go enforces this).
 - **Separated Services**: Core and Admin services run as separate processes for fault isolation.
-- **Cross-Process State**: Services communicate via a shared JSON config file (`localsend_config.json`). The admin service polls this file every 2 seconds to detect changes.
-- **State Sharing**: Services share state via the `AdminStateProvider` interface, not direct memory references.
+- **Cross-Process State**: Services share a SQLite database (`localsend_logs.db`) for transfer logs, ensuring real-time consistency. Settings are stored in a shared JSON config file (`localsend_config.json`).
 - **Concurrency**: Uses Goroutines for background tasks (Multicast loop, Servers, config file watcher).
 - **Thread Safety**: `sync.Mutex` used in both `State` and `AdminState` to protect shared data.
 - **Config Persistence**: Auto-saved every 15 seconds (core) and on admin config changes. The admin service watches for file modifications.
+- **Database**: Pure Go SQLite (`modernc.org/sqlite`) with WAL mode for concurrent read/write support.
 
 ## References
 
