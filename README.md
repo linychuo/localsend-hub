@@ -2,7 +2,7 @@
 
 > **High-performance, production-ready LocalSend protocol receiver** built in Go. Receive files from any LocalSend-compatible device (iOS, Android, Windows, macOS, Linux) on your NAS or server seamlessly.
 
-[![Go Version](https://img.shields.io/badge/go-1.21+-00ADD8?logo=go)](https://go.dev/)
+[![Go Version](https://img.shields.io/badge/go-1.25+-00ADD8?logo=go)](https://go.dev/)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Docker](https://img.shields.io/badge/docker-supported-2496ED?logo=docker)](Dockerfile)
 [![Binary Size](https://img.shields.io/badge/binary%20size-~9MB-green)](README.md)

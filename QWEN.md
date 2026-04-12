@@ -29,7 +29,7 @@ These two services run as **separate processes** for fault isolation. If the adm
 
 ## Technology Stack
 
-- **Language**: Go 1.21+
+- **Language**: Go 1.25+
 - **Standard Libs**: `crypto/tls`, `crypto/x509`, `net/http`, `net`, `embed`.
 - **UI**: Embedded HTML/CSS/JS via `go:embed` (No external frontend framework, uses Vanilla JS).
 - **Architecture**: Internal packages (`internal/`) for strict encapsulation.
