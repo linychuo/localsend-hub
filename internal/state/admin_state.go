@@ -50,13 +50,13 @@ func NewAdminState() *AdminState {
 	// 加载初始配置
 	s.loadFromConfigFile()
 
-	// 初始化 SQLite 数据库
-	logDB, err := db.NewLogDB(s.MaxLogs)
+	// 初始化 SQLite 数据库 (只读打开，由 Core 服务负责初始化)
+	logDB, err := db.OpenLogDB()
 	if err != nil {
-		log.Printf("❌ Admin: Failed to initialize log database: %v", err)
+		log.Printf("⚠️ Admin: Failed to open log database (Core service may not be running yet): %v", err)
 	} else {
 		s.LogDB = logDB
-		log.Println("✅ Admin: Log database initialized.")
+		log.Println("✅ Admin: Log database opened (read-only).")
 	}
 
 	// 确保接收目录存在

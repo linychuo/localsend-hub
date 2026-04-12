@@ -5,6 +5,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -44,6 +45,27 @@ func GetDBPath() string {
 	return filepath.Join(cwd, "localsend_logs.db")
 }
 
+// dbExecWithRetry 带重试的数据库执行，用于解决多进程并发打开时的 SQLITE_BUSY 问题
+func dbExecWithRetry(db *sql.DB, query string, maxRetries int) error {
+	var err error
+	for i := 0; i < maxRetries; i++ {
+		_, err = db.Exec(query)
+		if err == nil {
+			return nil
+		}
+		// Check if error is SQLITE_BUSY (database is locked)
+		if strings.Contains(err.Error(), "SQLITE_BUSY") || strings.Contains(err.Error(), "database is locked") {
+			delay := time.Duration(i+1) * 200 * time.Millisecond
+			log.Printf("⚠️ Database locked, retrying in %v... (%d/%d)", delay, i+1, maxRetries)
+			time.Sleep(delay)
+			continue
+		}
+		// Non-retryable error
+		return err
+	}
+	return err
+}
+
 // NewLogDB 创建并初始化日志数据库
 func NewLogDB(maxLogs int) (*LogDB, error) {
 	dbPath := GetDBPath()
@@ -59,13 +81,18 @@ func NewLogDB(maxLogs int) (*LogDB, error) {
 		return nil, err
 	}
 
-	// WAL 模式支持并发读写
-	if _, err := db.Exec("PRAGMA journal_mode=WAL"); err != nil {
+	// WAL 模式支持并发读写 (带重试以解决多进程并发打开冲突)
+	if err := dbExecWithRetry(db, "PRAGMA journal_mode=WAL", 5); err != nil {
 		log.Printf("⚠️ Failed to set WAL mode: %v", err)
 	}
 
-	// 创建表
-	if _, err := db.Exec(`
+	// Set busy timeout so that all subsequent queries will retry instead of failing immediately
+	if err := dbExecWithRetry(db, "PRAGMA busy_timeout=5000", 3); err != nil {
+		log.Printf("⚠️ Failed to set busy_timeout: %v", err)
+	}
+
+	// 创建表 (带重试)
+	if err := dbExecWithRetry(db, `
 		CREATE TABLE IF NOT EXISTS transfer_logs (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
 			time TEXT NOT NULL,
@@ -73,10 +100,17 @@ func NewLogDB(maxLogs int) (*LogDB, error) {
 			size INTEGER NOT NULL,
 			sender TEXT NOT NULL,
 			status TEXT NOT NULL
-		);
-		CREATE INDEX IF NOT EXISTS idx_logs_time ON transfer_logs(time);
-	`); err != nil {
+		)
+	`, 5); err != nil {
+		db.Close()
 		return nil, err
+	}
+
+	if err := dbExecWithRetry(db, `
+		CREATE INDEX IF NOT EXISTS idx_logs_time ON transfer_logs(time)
+	`, 5); err != nil {
+		// Index creation failure is non-fatal
+		log.Printf("⚠️ Failed to create index: %v", err)
 	}
 
 	l := &LogDB{
@@ -85,6 +119,27 @@ func NewLogDB(maxLogs int) (*LogDB, error) {
 	}
 
 	return l, nil
+}
+
+// OpenLogDB 以只读方式打开数据库连接（用于非写入进程，如 Admin 服务）
+// 不执行 WAL 设置、表创建等初始化操作，避免多进程锁冲突
+func OpenLogDB() (*LogDB, error) {
+	dbPath := GetDBPath()
+
+	if _, err := os.Stat(dbPath); err != nil {
+		return nil, err
+	}
+
+	db, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		return nil, err
+	}
+
+	// Set busy timeout for read queries
+	db.Exec("PRAGMA busy_timeout=5000")
+	db.Exec("PRAGMA journal_mode=WAL")
+
+	return &LogDB{db: db, max: 1000}, nil
 }
 
 // AddLog 添加一条日志记录
