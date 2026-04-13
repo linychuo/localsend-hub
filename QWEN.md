@@ -13,7 +13,7 @@ These two services run as **separate processes** for fault isolation. If the adm
 ### Key Features
 - **🔐 Native HTTPS**: Generates self-signed RSA-2048 certificates at startup. No external proxy needed.
 - **📡 UDP Multicast**: Announces availability to the local network automatically.
-- **📦 File Reception**: Saves incoming files with auto-rename support for duplicates.
+- **📦 File Reception**: Saves incoming files with auto-rename support for duplicates. Files are organized into `YYYY/MM/` subdirectories based on the file's modified time metadata.
 - **🛡️ Admin Console**: A modern web UI running on `0.0.0.0:53318` (LAN accessible) to view transfer logs and manage directories.
 - **♻️ Auto-Cleanup**: Logs are capped (e.g., 1000 entries) to prevent memory leaks.
 - **🚀 Single Binary**: Compiles to a static binary (~9MB) with zero dependencies.
@@ -44,6 +44,7 @@ These two services run as **separate processes** for fault isolation. If the adm
 | **Device Type** | `server` |
 | **Multicast** | `224.0.0.167:53317` |
 | **Default Dir** | `./received` |
+| **File Storage** | `received/YYYY/MM/` (by file modified time) |
 | **Max Logs** | `1000` (ring buffer) |
 
 ## Building and Running

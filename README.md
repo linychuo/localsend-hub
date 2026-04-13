@@ -12,7 +12,7 @@
 
 - **🔐 Native HTTPS** — Auto-generates RSA-2048 self-signed TLS certificates at startup. No external reverse proxy needed.
 - **📡 UDP Multicast Discovery** — Automatically announces availability to the local network using LocalSend protocol v2.
-- **📦 Seamless File Reception** — Stream-based file reception with automatic duplicate renaming (`file_timestamp.ext`).
+- **📦 Seamless File Reception** — Stream-based file reception with automatic duplicate renaming (`file_timestamp.ext`). Files are organized into `YYYY/MM/` subdirectories based on the file's modified time metadata.
 - **🛡️ Admin Dashboard** — Modern responsive web UI at `0.0.0.0:53318` for monitoring transfers, managing files, and configuring settings. Mobile-friendly with responsive layout.
 - **♻️ Resource Efficient** — Capped log buffer (1000 entries), ~9MB static binary, ~10MB memory footprint.
 - **🐳 Docker Ready** — Multi-stage build with health checks, resource limits, and volume persistence.
@@ -61,6 +61,7 @@ This mounts `./data/received` and `./data/config` for persistent storage.
 | **Device Alias** | `LocalSend Hub` | Visible name on local network |
 | **Device Type** | `server` | Reported to LocalSend clients |
 | **Receive Directory** | `./received` | Where files are saved |
+| **File Storage** | `received/YYYY/MM/` | Organized by file modified time |
 | **Multicast Address** | `224.0.0.167:53317` | LocalSend discovery protocol |
 | **Max Logs** | `1000` | Ring buffer, oldest dropped |
 
