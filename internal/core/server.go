@@ -147,6 +147,9 @@ func (s *Server) handlePrepareUpload(w http.ResponseWriter, r *http.Request) {
 		Files map[string]struct {
 			ID       string `json:"id"`
 			FileName string `json:"fileName"`
+			Metadata *struct {
+				Modified *string `json:"modified"`
+			} `json:"metadata"`
 		} `json:"files"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -156,14 +159,26 @@ func (s *Server) handlePrepareUpload(w http.ResponseWriter, r *http.Request) {
 
 	sessionID := fmt.Sprintf("%d", time.Now().UnixNano())
 	tokens := map[string]string{}
-	fileMap := map[string]string{}
+	fileMap := map[string]*state.FileMeta{}
 
 	for id, info := range req.Files {
 		tokens[id] = fmt.Sprintf("%d", time.Now().UnixNano())
-		if info.FileName != "" {
-			fileMap[id] = info.FileName
-		} else if info.ID != "" {
-			fileMap[id] = info.ID
+
+		fileName := info.FileName
+		if fileName == "" {
+			fileName = info.ID
+		}
+
+		var modifiedTime *time.Time
+		if info.Metadata != nil && info.Metadata.Modified != nil {
+			if t, err := time.Parse(time.RFC3339, *info.Metadata.Modified); err == nil {
+				modifiedTime = &t
+			}
+		}
+
+		fileMap[id] = &state.FileMeta{
+			FileName: fileName,
+			Modified: modifiedTime,
 		}
 	}
 
@@ -181,10 +196,18 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 	sessionID := q.Get("sessionId")
 	fileID := q.Get("fileId")
 
-	fileName := s.state.ResolveFileName(sessionID, fileID, fileID)
-	fileName = filepath.Base(fileName)
+	meta := s.state.ResolveFileMeta(sessionID, fileID)
+	fileName := filepath.Base(meta.FileName)
+	if fileName == "" {
+		fileName = filepath.Base(fileID)
+	}
 
+	// 根据文件元信息中的修改时间构建 YYYY/MM 目录结构
 	dir := s.state.GetReceiveDir()
+	if meta.Modified != nil {
+		yearMonth := meta.Modified.Format("2006/01")
+		dir = filepath.Join(dir, yearMonth)
+	}
 	os.MkdirAll(dir, 0755)
 
 	outPath := filepath.Join(dir, fileName)

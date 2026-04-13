@@ -5,9 +5,16 @@ import (
 	"os"
 	"strconv"
 	"sync"
+	"time"
 
 	"localsend-hub/internal/db"
 )
+
+// FileMeta 存储文件的元信息
+type FileMeta struct {
+	FileName string
+	Modified *time.Time
+}
 
 // State 核心服务状态 (仅核心服务使用)
 // 包含 sessions 等不需要跨进程共享的内存状态
@@ -22,7 +29,7 @@ type State struct {
 	// LogDB SQLite 数据库实例 (跨进程共享)
 	LogDB *db.LogDB
 	// Sessions 记录 Session 的文件映射 (不持久化)
-	Sessions map[string]map[string]string
+	Sessions map[string]map[string]*FileMeta
 	// CancelSessions 记录被取消的 Session (用于中断上传)
 	CancelSessions map[string]bool
 	// 设备信息配置
@@ -50,7 +57,7 @@ func New() *State {
 		Alias:       "LocalSend Hub",
 		DeviceModel: "LocalSend Hub Server",
 		DeviceType:  "server",
-		Sessions:    make(map[string]map[string]string),
+		Sessions:     make(map[string]map[string]*FileMeta),
 		CancelSessions: make(map[string]bool),
 	}
 
@@ -149,21 +156,30 @@ func (s *State) SetDeviceIdentity(alias, model, deviceType string) {
 }
 
 // RegisterSession 记录 Session 的文件映射
-func (s *State) RegisterSession(sessionID string, fileMap map[string]string) {
+func (s *State) RegisterSession(sessionID string, fileMap map[string]*FileMeta) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.Sessions[sessionID] = fileMap
 }
 
-// ResolveFileName 根据 SessionID 和 FileID 解析文件名
-func (s *State) ResolveFileName(sessionID, fileID, fallbackName string) string {
+// ResolveFileMeta 根据 SessionID 和 FileID 获取文件元信息
+func (s *State) ResolveFileMeta(sessionID, fileID string) *FileMeta {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	if sessionMap, ok := s.Sessions[sessionID]; ok {
-		if name, ok := sessionMap[fileID]; ok {
-			return name
+		if meta, ok := sessionMap[fileID]; ok {
+			return meta
 		}
+	}
+	return &FileMeta{FileName: fileID}
+}
+
+// ResolveFileName 根据 SessionID 和 FileID 解析文件名
+func (s *State) ResolveFileName(sessionID, fileID, fallbackName string) string {
+	meta := s.ResolveFileMeta(sessionID, fileID)
+	if meta.FileName != "" {
+		return meta.FileName
 	}
 	return fallbackName
 }
