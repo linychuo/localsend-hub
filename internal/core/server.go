@@ -1,6 +1,7 @@
 package core
 
 import (
+	"context"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/sha256"
@@ -114,20 +115,31 @@ func (s *Server) generateCert() error {
 	return nil
 }
 
-// 获取设备信息函数 (供多播和 API 使用)
+// 获取设备信息函数 (供多播和 /info 使用)
 func (s *Server) getDeviceInfo() map[string]interface{} {
 	alias, model, deviceType := s.state.GetDeviceIdentity()
 	return map[string]interface{}{
-		"alias":        alias,
-		"version":      "2.0",
-		"deviceModel":  model,
-		"deviceType":   deviceType,
-		"fingerprint":  s.fingerprint,
-		"port":         s.port,
-		"protocol":     "https",
-		"download":     false,
-		"announce":     true,
-		"announcement": true,
+		"alias":       alias,
+		"version":     "2.0",
+		"deviceModel": model,
+		"deviceType":  deviceType,
+		"fingerprint": s.fingerprint,
+		"port":        s.port,
+		"protocol":    "https",
+		"download":    false,
+	}
+}
+
+// /info 响应 (不含 port/protocol)
+func (s *Server) getInfoResponse() map[string]interface{} {
+	alias, model, deviceType := s.state.GetDeviceIdentity()
+	return map[string]interface{}{
+		"alias":       alias,
+		"version":     "2.0",
+		"deviceModel": model,
+		"deviceType":  deviceType,
+		"fingerprint": s.fingerprint,
+		"download":    false,
 	}
 }
 
@@ -135,25 +147,38 @@ func (s *Server) getDeviceInfo() map[string]interface{} {
 
 func (s *Server) handleInfo(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(s.getDeviceInfo())
+	json.NewEncoder(w).Encode(s.getInfoResponse())
 }
 
 func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
-	s.handleInfo(w, r)
+	// register 响应与 info 相同 (协议 spec)
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(s.getInfoResponse())
 }
 
 func (s *Server) handlePrepareUpload(w http.ResponseWriter, r *http.Request) {
 	var req struct {
+		Info map[string]interface{} `json:"info"`
 		Files map[string]struct {
 			ID       string `json:"id"`
 			FileName string `json:"fileName"`
+			Size     *int64 `json:"size"`
+			FileType string `json:"fileType"`
+			Sha256   *string `json:"sha256"`
+			Preview  *string `json:"preview"`
 			Metadata *struct {
-				Modified *string `json:"modified"`
+				Modified  *string `json:"modified"`
+				Accessed  *string `json:"accessed"`
 			} `json:"metadata"`
 		} `json:"files"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "Invalid JSON", 400)
+		return
+	}
+
+	if req.Files == nil || len(req.Files) == 0 {
+		http.Error(w, "No files specified", 400)
 		return
 	}
 
@@ -178,11 +203,14 @@ func (s *Server) handlePrepareUpload(w http.ResponseWriter, r *http.Request) {
 
 		fileMap[id] = &state.FileMeta{
 			FileName: fileName,
+			Size:     info.Size,
+			FileType: info.FileType,
+			Sha256:   info.Sha256,
 			Modified: modifiedTime,
 		}
 	}
 
-	s.state.RegisterSession(sessionID, fileMap)
+	s.state.RegisterSession(sessionID, fileMap, tokens)
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
@@ -195,12 +223,32 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	sessionID := q.Get("sessionId")
 	fileID := q.Get("fileId")
+	token := q.Get("token")
+
+	if sessionID == "" || fileID == "" || token == "" {
+		http.Error(w, "Missing required query parameters (sessionId, fileId, token)", 400)
+		return
+	}
+
+	// 验证 token
+	if !s.state.ValidateToken(sessionID, fileID, token) {
+		http.Error(w, "Invalid token", 403)
+		return
+	}
 
 	meta := s.state.ResolveFileMeta(sessionID, fileID)
 	fileName := filepath.Base(meta.FileName)
 	if fileName == "" {
 		fileName = filepath.Base(fileID)
 	}
+
+	// 创建可取消的 context，用于中途取消传输
+	ctx, cancel := context.WithCancel(r.Context())
+	s.state.RegisterUploadCancel(sessionID, cancel)
+	defer func() {
+		cancel()
+		s.state.CleanupUpload(sessionID)
+	}()
 
 	// 根据文件元信息中的修改时间构建 YYYY/MM 目录结构
 	dir := s.state.GetReceiveDir()
@@ -225,20 +273,21 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 	}
 	defer f.Close()
 
-	n, err := io.Copy(f, r.Body)
+	// 使用可取消的 reader 包装请求体
+	cancellableReader := state.NewCancellableReader(ctx, r.Body)
+	n, err := io.Copy(f, cancellableReader)
 	if err != nil {
+		if ctx.Err() != nil {
+			// 传输被主动取消
+			f.Close()
+			os.Remove(outPath)
+			s.state.AddLog(fileName, n, r.RemoteAddr, "Cancelled")
+			log.Printf("❌ Upload cancelled: %s", fileName)
+			http.Error(w, "Transfer cancelled", 499)
+			return
+		}
 		s.state.AddLog(fileName, n, r.RemoteAddr, "Failed")
 		http.Error(w, "Write Error", 500)
-		return
-	}
-
-	// 检查是否被取消
-	if s.state.IsSessionCancelled(sessionID) {
-		f.Close()
-		os.Remove(outPath)
-		s.state.AddLog(fileName, n, r.RemoteAddr, "Cancelled")
-		log.Printf("❌ Upload cancelled: %s", fileName)
-		http.Error(w, "Transfer cancelled", 499)
 		return
 	}
 
@@ -248,23 +297,14 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleCancel(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		SessionID string `json:"sessionId"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid JSON", 400)
-		return
-	}
-
-	if req.SessionID == "" {
+	sessionID := r.URL.Query().Get("sessionId")
+	if sessionID == "" {
 		http.Error(w, "Missing sessionId", 400)
 		return
 	}
 
-	s.state.CancelSession(req.SessionID)
-	log.Printf("❌ Transfer cancelled: session %s", req.SessionID)
+	s.state.CancelSession(sessionID)
+	log.Printf("❌ Transfer cancelled: session %s", sessionID)
 
-	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(200)
-	json.NewEncoder(w).Encode(map[string]interface{}{})
 }

@@ -8,6 +8,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"path/filepath"
 
 	"localsend-hub/internal/state"
 )
@@ -121,24 +122,25 @@ func (s *Server) handleIdentity(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleFiles(w http.ResponseWriter, r *http.Request) {
 	dir := s.state.GetReceiveDir()
-	files, err := os.ReadDir(dir)
-	if err != nil {
-		http.Error(w, "Dir Error", 500)
-		return
-	}
-
 	var res []map[string]interface{}
-	for _, f := range files {
-		if !f.IsDir() {
-			info, _ := f.Info()
-			res = append(res, map[string]interface{}{
-				"name":    f.Name(),
-				"size":    info.Size(),
-				"modTime": info.ModTime().Format("2006-01-02 15:04:05"),
-				"url":     "/files/" + f.Name(),
-			})
+
+	_ = filepath.WalkDir(dir, func(path string, d os.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return nil
 		}
-	}
+		info, _ := d.Info()
+		// 计算相对于接收目录的路径
+		relPath, _ := filepath.Rel(dir, path)
+		res = append(res, map[string]interface{}{
+			"name":    d.Name(),
+			"path":    relPath,
+			"size":    info.Size(),
+			"modTime": info.ModTime().Format("2006-01-02 15:04:05"),
+			"url":     "/files/" + filepath.ToSlash(relPath),
+		})
+		return nil
+	})
+
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(res)
 }

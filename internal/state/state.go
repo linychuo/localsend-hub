@@ -1,6 +1,8 @@
 package state
 
 import (
+	"context"
+	"io"
 	"log"
 	"os"
 	"strconv"
@@ -13,7 +15,31 @@ import (
 // FileMeta 存储文件的元信息
 type FileMeta struct {
 	FileName string
+	Size     *int64
+	FileType string
+	Sha256   *string
 	Modified *time.Time
+}
+
+// CancellableReader 是一个可中断的 io.Reader 包装器
+// 每次 Read 调用前检查 context 是否已取消
+type CancellableReader struct {
+	reader io.Reader
+	ctx    context.Context
+}
+
+// NewCancellableReader 创建可中断的 reader
+func NewCancellableReader(ctx context.Context, reader io.Reader) *CancellableReader {
+	return &CancellableReader{reader: reader, ctx: ctx}
+}
+
+func (r *CancellableReader) Read(p []byte) (int, error) {
+	select {
+	case <-r.ctx.Done():
+		return 0, r.ctx.Err()
+	default:
+		return r.reader.Read(p)
+	}
 }
 
 // State 核心服务状态 (仅核心服务使用)
@@ -30,8 +56,12 @@ type State struct {
 	LogDB *db.LogDB
 	// Sessions 记录 Session 的文件映射 (不持久化)
 	Sessions map[string]map[string]*FileMeta
+	// sessionTokens 存储 prepare-upload 返回的 file tokens (用于 upload 验证)
+	sessionTokens map[string]map[string]string
 	// CancelSessions 记录被取消的 Session (用于中断上传)
 	CancelSessions map[string]bool
+	// uploadCancelFuncs 正在进行的上传的 cancel 函数 (用于立即中断)
+	uploadCancelFuncs map[string]context.CancelFunc
 	// 设备信息配置
 	Alias       string
 	DeviceModel string
@@ -57,8 +87,10 @@ func New() *State {
 		Alias:       "LocalSend Hub",
 		DeviceModel: "LocalSend Hub Server",
 		DeviceType:  "server",
-		Sessions:     make(map[string]map[string]*FileMeta),
-		CancelSessions: make(map[string]bool),
+		Sessions:        make(map[string]map[string]*FileMeta),
+		sessionTokens:   make(map[string]map[string]string),
+		CancelSessions:  make(map[string]bool),
+		uploadCancelFuncs: make(map[string]context.CancelFunc),
 	}
 
 	// 2. 尝试加载配置文件 (覆盖默认值)
@@ -156,10 +188,24 @@ func (s *State) SetDeviceIdentity(alias, model, deviceType string) {
 }
 
 // RegisterSession 记录 Session 的文件映射
-func (s *State) RegisterSession(sessionID string, fileMap map[string]*FileMeta) {
+func (s *State) RegisterSession(sessionID string, fileMap map[string]*FileMeta, tokens map[string]string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.Sessions[sessionID] = fileMap
+	// 存储 tokens 用于后续 upload 验证
+	s.sessionTokens[sessionID] = tokens
+}
+
+// ValidateToken 验证 file token 是否匹配
+func (s *State) ValidateToken(sessionID, fileID, token string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if tokens, ok := s.sessionTokens[sessionID]; ok {
+		if expected, ok := tokens[fileID]; ok {
+			return expected == token
+		}
+	}
+	return false
 }
 
 // ResolveFileMeta 根据 SessionID 和 FileID 获取文件元信息
@@ -189,7 +235,28 @@ func (s *State) CancelSession(sessionID string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.CancelSessions[sessionID] = true
+	// 如果有正在进行的上传，立即取消
+	if cancel, ok := s.uploadCancelFuncs[sessionID]; ok {
+		cancel()
+	}
 	delete(s.Sessions, sessionID)
+	delete(s.uploadCancelFuncs, sessionID)
+	delete(s.sessionTokens, sessionID)
+}
+
+// RegisterUploadCancel 注册上传的取消函数，用于中途取消传输
+func (s *State) RegisterUploadCancel(sessionID string, cancel context.CancelFunc) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.uploadCancelFuncs[sessionID] = cancel
+}
+
+// CleanupUpload 清理上传的取消函数（上传完成时调用）
+func (s *State) CleanupUpload(sessionID string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.uploadCancelFuncs, sessionID)
+	delete(s.sessionTokens, sessionID)
 }
 
 // IsSessionCancelled 检查 Session 是否已被取消
