@@ -55,6 +55,7 @@ func (s *Server) Start() error {
 	mux.HandleFunc("/api/localsend/v2/register", s.handleRegister)
 	mux.HandleFunc("/api/localsend/v2/prepare-upload", s.handlePrepareUpload)
 	mux.HandleFunc("/api/localsend/v2/upload", s.handleUpload)
+	mux.HandleFunc("/api/localsend/v2/cancel", s.handleCancel)
 
 	addr := fmt.Sprintf(":%d", s.port)
 	log.Printf("🚀 Core Service listening on https://0.0.0.0%s", addr)
@@ -208,7 +209,39 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// 检查是否被取消
+	if s.state.IsSessionCancelled(sessionID) {
+		f.Close()
+		os.Remove(outPath)
+		s.state.AddLog(fileName, n, r.RemoteAddr, "Cancelled")
+		log.Printf("❌ Upload cancelled: %s", fileName)
+		http.Error(w, "Transfer cancelled", 499)
+		return
+	}
+
 	log.Printf("📥 Received: %s (%d bytes)", outPath, n)
 	s.state.AddLog(fileName, n, r.RemoteAddr, "Success")
 	w.WriteHeader(200)
+}
+
+func (s *Server) handleCancel(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		SessionID string `json:"sessionId"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid JSON", 400)
+		return
+	}
+
+	if req.SessionID == "" {
+		http.Error(w, "Missing sessionId", 400)
+		return
+	}
+
+	s.state.CancelSession(req.SessionID)
+	log.Printf("❌ Transfer cancelled: session %s", req.SessionID)
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	json.NewEncoder(w).Encode(map[string]interface{}{})
 }

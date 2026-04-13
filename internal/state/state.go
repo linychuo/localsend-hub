@@ -21,8 +21,10 @@ type State struct {
 	MaxLogs int
 	// LogDB SQLite 数据库实例 (跨进程共享)
 	LogDB *db.LogDB
-	// Sessions 记录 Session 信息，用于在 Upload 阶段获取文件名 (不持久化)
+	// Sessions 记录 Session 的文件映射 (不持久化)
 	Sessions map[string]map[string]string
+	// CancelSessions 记录被取消的 Session (用于中断上传)
+	CancelSessions map[string]bool
 	// 设备信息配置
 	Alias       string
 	DeviceModel string
@@ -49,6 +51,7 @@ func New() *State {
 		DeviceModel: "LocalSend Hub Server",
 		DeviceType:  "server",
 		Sessions:    make(map[string]map[string]string),
+		CancelSessions: make(map[string]bool),
 	}
 
 	// 2. 尝试加载配置文件 (覆盖默认值)
@@ -163,6 +166,21 @@ func (s *State) ResolveFileName(sessionID, fileID, fallbackName string) string {
 		}
 	}
 	return fallbackName
+}
+
+// CancelSession 标记 Session 为已取消，并清理映射
+func (s *State) CancelSession(sessionID string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.CancelSessions[sessionID] = true
+	delete(s.Sessions, sessionID)
+}
+
+// IsSessionCancelled 检查 Session 是否已被取消
+func (s *State) IsSessionCancelled(sessionID string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.CancelSessions[sessionID]
 }
 
 // AddLog 线程安全地添加日志，并自动清理旧日志
