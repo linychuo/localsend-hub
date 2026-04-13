@@ -124,6 +124,7 @@ docker compose up -d
 | `/api/localsend/v2/register` | POST | Registers sender (returns device info) |
 | `/api/localsend/v2/prepare-upload` | POST | Prepares session (returns session ID + tokens) |
 | `/api/localsend/v2/upload` | POST | Receives file binary (Octet-Stream) |
+| `/api/localsend/v2/cancel` | POST | Cancels an in-progress transfer (accepts sessionId) |
 
 ### Admin API (Port 53318 - HTTP, LAN Accessible)
 | Endpoint | Method | Description |

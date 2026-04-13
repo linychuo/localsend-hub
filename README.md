@@ -140,6 +140,7 @@ Implements the [LocalSend Protocol v2](https://github.com/localsend/protocol).
 | `/api/localsend/v2/register` | `POST` | Sender registration (returns info) |
 | `/api/localsend/v2/prepare-upload` | `POST` | Session preparation (returns session ID + tokens) |
 | `/api/localsend/v2/upload` | `POST` | File upload (octet-stream) |
+| `/api/localsend/v2/cancel` | `POST` | Cancel an in-progress transfer (accepts sessionId) |
 
 ### Admin API (Port 53318 - HTTP, LAN Accessible)
 
