@@ -119,13 +119,13 @@ docker compose up -d
 ## API Endpoints
 
 ### Core API (Port 53317 - HTTPS)
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/api/localsend/v2/info` | GET | Returns device info (JSON) |
-| `/api/localsend/v2/register` | POST | Registers sender (returns device info) |
-| `/api/localsend/v2/prepare-upload` | POST | Prepares session (returns session ID + tokens) |
-| `/api/localsend/v2/upload` | POST | Receives file binary (Octet-Stream) |
-| `/api/localsend/v2/cancel` | POST | Cancels an in-progress transfer (accepts sessionId) |
+| Endpoint | Method | Query Params | Body | Response |
+|----------|--------|-------------|------|----------|
+| `/api/localsend/v2/info` | GET | — | — | `{alias, version, deviceModel, deviceType, fingerprint, download}` |
+| `/api/localsend/v2/register` | POST | — | `{alias, version, ...}` | `{alias, version, deviceModel, deviceType, fingerprint, download}` |
+| `/api/localsend/v2/prepare-upload` | POST | `?pin=xxx` (optional) | `{info, files: {id: {id, fileName, size, fileType, sha256, preview, metadata}}}` | `{sessionId, files: {fileId: token}}` |
+| `/api/localsend/v2/upload` | POST | `sessionId`, `fileId`, `token` | Binary (Octet-Stream) | 200 (no body) |
+| `/api/localsend/v2/cancel` | POST | `sessionId` | — | 200 (no body) |
 
 ### Admin API (Port 53318 - HTTP, LAN Accessible)
 | Endpoint | Method | Description |

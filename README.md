@@ -135,13 +135,13 @@ LocalSend Hub uses a **dual-service decoupled architecture** for fault isolation
 
 Implements the [LocalSend Protocol v2](https://github.com/localsend/protocol).
 
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/api/localsend/v2/info` | `GET` | Device info (JSON) |
-| `/api/localsend/v2/register` | `POST` | Sender registration (returns info) |
-| `/api/localsend/v2/prepare-upload` | `POST` | Session preparation (returns session ID + tokens) |
-| `/api/localsend/v2/upload` | `POST` | File upload (octet-stream) |
-| `/api/localsend/v2/cancel` | `POST` | Cancel an in-progress transfer (accepts sessionId) |
+| Endpoint | Method | Query Params | Body | Response |
+|----------|--------|-------------|------|----------|
+| `/api/localsend/v2/info` | `GET` | — | — | `{alias, version, deviceModel, deviceType, fingerprint, download}` |
+| `/api/localsend/v2/register` | `POST` | — | `{alias, version, ...}` | `{alias, version, deviceModel, deviceType, fingerprint, download}` |
+| `/api/localsend/v2/prepare-upload` | `POST` | `?pin=xxx` (optional) | `{info, files: {id: {id, fileName, size, fileType, sha256, preview, metadata}}}` | `{sessionId, files: {fileId: token}}` |
+| `/api/localsend/v2/upload` | `POST` | `sessionId`, `fileId`, `token` | Binary (Octet-Stream) | 200 (no body) |
+| `/api/localsend/v2/cancel` | `POST` | `sessionId` | — | 200 (no body) |
 
 ### Admin API (Port 53318 - HTTP, LAN Accessible)
 
