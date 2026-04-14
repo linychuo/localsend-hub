@@ -14,11 +14,12 @@ import (
 
 // FileMeta 存储文件的元信息
 type FileMeta struct {
-	FileName string
-	Size     *int64
-	FileType string
-	Sha256   *string
-	Modified *time.Time
+	FileName        string
+	Size            *int64
+	FileType        string
+	Sha256          *string
+	Modified        *time.Time
+	SenderFingerprint string // 发送设备的 TLS 指纹
 }
 
 // CancellableReader 是一个可中断的 io.Reader 包装器

@@ -158,7 +158,7 @@ func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handlePrepareUpload(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Info map[string]interface{} `json:"info"`
+		Info  map[string]interface{} `json:"info"`
 		Files map[string]struct {
 			ID       string `json:"id"`
 			FileName string `json:"fileName"`
@@ -182,6 +182,14 @@ func (s *Server) handlePrepareUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// 提取发送设备的指纹
+	senderFingerprint := ""
+	if req.Info != nil {
+		if fp, ok := req.Info["fingerprint"].(string); ok {
+			senderFingerprint = fp
+		}
+	}
+
 	sessionID := fmt.Sprintf("%d", time.Now().UnixNano())
 	tokens := map[string]string{}
 	fileMap := map[string]*state.FileMeta{}
@@ -202,11 +210,12 @@ func (s *Server) handlePrepareUpload(w http.ResponseWriter, r *http.Request) {
 		}
 
 		fileMap[id] = &state.FileMeta{
-			FileName: fileName,
-			Size:     info.Size,
-			FileType: info.FileType,
-			Sha256:   info.Sha256,
-			Modified: modifiedTime,
+			FileName:        fileName,
+			Size:            info.Size,
+			FileType:        info.FileType,
+			Sha256:          info.Sha256,
+			Modified:        modifiedTime,
+			SenderFingerprint: senderFingerprint,
 		}
 	}
 
@@ -252,6 +261,13 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 
 	// 根据文件元信息中的修改时间构建 YYYY/MM 目录结构
 	dir := s.state.GetReceiveDir()
+	
+	// 按发送设备指纹创建子目录
+	if meta.SenderFingerprint != "" {
+		dir = filepath.Join(dir, meta.SenderFingerprint)
+	}
+	
+	// 按文件修改时间创建年月子目录
 	if meta.Modified != nil {
 		yearMonth := meta.Modified.Format("2006/01")
 		dir = filepath.Join(dir, yearMonth)

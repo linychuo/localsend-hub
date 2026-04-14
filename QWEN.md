@@ -44,7 +44,7 @@ These two services run as **separate processes** for fault isolation. If the adm
 | **Device Type** | `server` |
 | **Multicast** | `224.0.0.167:53317` |
 | **Default Dir** | `./received` |
-| **File Storage** | `received/YYYY/MM/` (by file modified time) |
+| **File Storage** | `received/{sender_fingerprint}/YYYY/MM/` (by sender fingerprint and file modified time) |
 | **Max Logs** | `1000` (ring buffer) |
 
 ## Building and Running
