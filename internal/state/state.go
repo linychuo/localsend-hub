@@ -58,11 +58,13 @@ type State struct {
 	// Sessions 记录 Session 的文件映射 (不持久化)
 	Sessions map[string]map[string]*FileMeta
 	// sessionTokens 存储 prepare-upload 返回的 file tokens (用于 upload 验证)
+	// 结构: sessionID -> fileID -> token
 	sessionTokens map[string]map[string]string
 	// CancelSessions 记录被取消的 Session (用于中断上传)
 	CancelSessions map[string]bool
 	// uploadCancelFuncs 正在进行的上传的 cancel 函数 (用于立即中断)
-	uploadCancelFuncs map[string]context.CancelFunc
+	// 结构: sessionID -> fileID -> cancel
+	uploadCancelFuncs map[string]map[string]context.CancelFunc
 	// 设备信息配置
 	Alias       string
 	DeviceModel string
@@ -91,7 +93,7 @@ func New() *State {
 		Sessions:        make(map[string]map[string]*FileMeta),
 		sessionTokens:   make(map[string]map[string]string),
 		CancelSessions:  make(map[string]bool),
-		uploadCancelFuncs: make(map[string]context.CancelFunc),
+		uploadCancelFuncs: make(map[string]map[string]context.CancelFunc),
 	}
 
 	// 2. 尝试加载配置文件 (覆盖默认值)
@@ -232,32 +234,50 @@ func (s *State) ResolveFileName(sessionID, fileID, fallbackName string) string {
 }
 
 // CancelSession 标记 Session 为已取消，并清理映射
+// 会触发该 session 下所有正在进行的上传的 cancel 函数
 func (s *State) CancelSession(sessionID string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.CancelSessions[sessionID] = true
-	// 如果有正在进行的上传，立即取消
-	if cancel, ok := s.uploadCancelFuncs[sessionID]; ok {
-		cancel()
+	// 触发该 session 下所有正在进行的上传的 cancel
+	if cancels, ok := s.uploadCancelFuncs[sessionID]; ok {
+		for _, cancel := range cancels {
+			cancel()
+		}
 	}
 	delete(s.Sessions, sessionID)
 	delete(s.uploadCancelFuncs, sessionID)
 	delete(s.sessionTokens, sessionID)
 }
 
-// RegisterUploadCancel 注册上传的取消函数，用于中途取消传输
-func (s *State) RegisterUploadCancel(sessionID string, cancel context.CancelFunc) {
+// RegisterUploadCancel 注册某个文件上传的 cancel 函数，用于中途取消传输
+// 同一 session 下多个文件并发上传时，按 fileID 分别存储，互不覆盖
+func (s *State) RegisterUploadCancel(sessionID, fileID string, cancel context.CancelFunc) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.uploadCancelFuncs[sessionID] = cancel
+	if s.uploadCancelFuncs[sessionID] == nil {
+		s.uploadCancelFuncs[sessionID] = make(map[string]context.CancelFunc)
+	}
+	s.uploadCancelFuncs[sessionID][fileID] = cancel
 }
 
-// CleanupUpload 清理上传的取消函数（上传完成时调用）
-func (s *State) CleanupUpload(sessionID string) {
+// CleanupUpload 清理某个文件上传的 cancel 函数和 token（单个文件上传完成时调用）
+// 当 session 下所有文件都已清理时，回收整个 session 的映射
+func (s *State) CleanupUpload(sessionID, fileID string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	delete(s.uploadCancelFuncs, sessionID)
-	delete(s.sessionTokens, sessionID)
+	if cancels, ok := s.uploadCancelFuncs[sessionID]; ok {
+		delete(cancels, fileID)
+		if len(cancels) == 0 {
+			delete(s.uploadCancelFuncs, sessionID)
+		}
+	}
+	if tokens, ok := s.sessionTokens[sessionID]; ok {
+		delete(tokens, fileID)
+		if len(tokens) == 0 {
+			delete(s.sessionTokens, sessionID)
+		}
+	}
 }
 
 // IsSessionCancelled 检查 Session 是否已被取消

@@ -253,10 +253,10 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 
 	// 创建可取消的 context，用于中途取消传输
 	ctx, cancel := context.WithCancel(r.Context())
-	s.state.RegisterUploadCancel(sessionID, cancel)
+	s.state.RegisterUploadCancel(sessionID, fileID, cancel)
 	defer func() {
 		cancel()
-		s.state.CleanupUpload(sessionID)
+		s.state.CleanupUpload(sessionID, fileID)
 	}()
 
 	// 根据文件元信息中的修改时间构建 YYYY/MM 目录结构
