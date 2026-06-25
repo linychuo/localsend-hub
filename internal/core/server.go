@@ -47,6 +47,22 @@ func (s *Server) Start() error {
 	// 启动多播广播
 	go discovery.NewAnnouncer(s.port, s.getDeviceInfo).Run()
 
+	addr := fmt.Sprintf(":%d", s.port)
+	log.Printf("🚀 Core Service listening on https://0.0.0.0%s", addr)
+
+	server := &http.Server{
+		Addr:    addr,
+		Handler: s.mux(),
+		TLSConfig: &tls.Config{
+			Certificates: []tls.Certificate{s.tlsCert},
+		},
+	}
+
+	return server.ListenAndServeTLS("", "")
+}
+
+// mux 构建并返回路由表 (独立出来便于测试)
+func (s *Server) mux() http.Handler {
 	mux := http.NewServeMux()
 
 	// 注册 LocalSend API 路由
@@ -58,18 +74,7 @@ func (s *Server) Start() error {
 	mux.HandleFunc("/api/localsend/v2/upload", s.handleUpload)
 	mux.HandleFunc("/api/localsend/v2/cancel", s.handleCancel)
 
-	addr := fmt.Sprintf(":%d", s.port)
-	log.Printf("🚀 Core Service listening on https://0.0.0.0%s", addr)
-
-	server := &http.Server{
-		Addr:    addr,
-		Handler: mux,
-		TLSConfig: &tls.Config{
-			Certificates: []tls.Certificate{s.tlsCert},
-		},
-	}
-
-	return server.ListenAndServeTLS("", "")
+	return mux
 }
 
 // 生成自签名证书

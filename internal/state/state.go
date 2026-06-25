@@ -162,6 +162,24 @@ func (s *State) Save() {
 	s.saveToFile()
 }
 
+// NewForTesting 构造一个仅用于测试的 State 实例
+// 不读取配置文件、不应用环境变量、不初始化 SQLite、不启动 goroutine
+// 接收目录由调用方指定 (通常是 t.TempDir())
+func NewForTesting(receiveDir string) *State {
+	return &State{
+		ReceiveDir:        receiveDir,
+		CorePort:          53317,
+		AdminPort:         53318,
+		MaxLogs:           1000,
+		Alias:             "TestHub",
+		DeviceModel:       "TestHub Server",
+		DeviceType:        "server",
+		Sessions:          make(map[string]map[string]*FileMeta),
+		sessionTokens:     make(map[string]map[string]string),
+		uploadCancelFuncs: make(map[string]map[string]context.CancelFunc),
+	}
+}
+
 // GetDeviceIdentity 获取完整的设备身份信息
 func (s *State) GetDeviceIdentity() (string, string, string) {
 	s.mu.Lock()
