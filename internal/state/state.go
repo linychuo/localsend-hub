@@ -265,6 +265,12 @@ func (s *State) CleanupUpload(sessionID, fileID string) {
 			delete(s.sessionTokens, sessionID)
 		}
 	}
+	if files, ok := s.Sessions[sessionID]; ok {
+		delete(files, fileID)
+		if len(files) == 0 {
+			delete(s.Sessions, sessionID)
+		}
+	}
 }
 
 // AddLog 线程安全地添加日志，并自动清理旧日志
