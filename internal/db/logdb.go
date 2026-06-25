@@ -123,6 +123,7 @@ func NewLogDB(maxLogs int) (*LogDB, error) {
 
 // OpenLogDB 以只读方式打开数据库连接（用于非写入进程，如 Admin 服务）
 // 不执行 WAL 设置、表创建等初始化操作，避免多进程锁冲突
+// WAL 模式由核心服务在初始化时设置，会在数据库文件上持久化，只读进程无需重复设置
 func OpenLogDB() (*LogDB, error) {
 	dbPath := GetDBPath()
 
@@ -134,10 +135,6 @@ func OpenLogDB() (*LogDB, error) {
 	if err != nil {
 		return nil, err
 	}
-
-	// Set busy timeout for read queries
-	db.Exec("PRAGMA busy_timeout=5000")
-	db.Exec("PRAGMA journal_mode=WAL")
 
 	return &LogDB{db: db, max: 1000}, nil
 }

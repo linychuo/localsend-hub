@@ -60,8 +60,6 @@ type State struct {
 	// sessionTokens 存储 prepare-upload 返回的 file tokens (用于 upload 验证)
 	// 结构: sessionID -> fileID -> token
 	sessionTokens map[string]map[string]string
-	// CancelSessions 记录被取消的 Session (用于中断上传)
-	CancelSessions map[string]bool
 	// uploadCancelFuncs 正在进行的上传的 cancel 函数 (用于立即中断)
 	// 结构: sessionID -> fileID -> cancel
 	uploadCancelFuncs map[string]map[string]context.CancelFunc
@@ -92,7 +90,6 @@ func New() *State {
 		DeviceType:  "server",
 		Sessions:        make(map[string]map[string]*FileMeta),
 		sessionTokens:   make(map[string]map[string]string),
-		CancelSessions:  make(map[string]bool),
 		uploadCancelFuncs: make(map[string]map[string]context.CancelFunc),
 	}
 
@@ -224,21 +221,11 @@ func (s *State) ResolveFileMeta(sessionID, fileID string) *FileMeta {
 	return &FileMeta{FileName: fileID}
 }
 
-// ResolveFileName 根据 SessionID 和 FileID 解析文件名
-func (s *State) ResolveFileName(sessionID, fileID, fallbackName string) string {
-	meta := s.ResolveFileMeta(sessionID, fileID)
-	if meta.FileName != "" {
-		return meta.FileName
-	}
-	return fallbackName
-}
-
 // CancelSession 标记 Session 为已取消，并清理映射
 // 会触发该 session 下所有正在进行的上传的 cancel 函数
 func (s *State) CancelSession(sessionID string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.CancelSessions[sessionID] = true
 	// 触发该 session 下所有正在进行的上传的 cancel
 	if cancels, ok := s.uploadCancelFuncs[sessionID]; ok {
 		for _, cancel := range cancels {
@@ -278,13 +265,6 @@ func (s *State) CleanupUpload(sessionID, fileID string) {
 			delete(s.sessionTokens, sessionID)
 		}
 	}
-}
-
-// IsSessionCancelled 检查 Session 是否已被取消
-func (s *State) IsSessionCancelled(sessionID string) bool {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.CancelSessions[sessionID]
 }
 
 // AddLog 线程安全地添加日志，并自动清理旧日志

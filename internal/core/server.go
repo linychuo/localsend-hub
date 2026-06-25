@@ -130,6 +130,16 @@ func (s *Server) getDeviceInfo() map[string]interface{} {
 	}
 }
 
+// randomToken 生成加密安全的随机 hex token，用于 sessionID 和 file token
+// 不使用时间戳，避免可预测性和纳秒级并发碰撞
+func randomToken(byteLen int) (string, error) {
+	b := make([]byte, byteLen)
+	if _, err := rand.Read(b); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(b), nil
+}
+
 // /info 响应 (不含 port/protocol)
 func (s *Server) getInfoResponse() map[string]interface{} {
 	alias, model, deviceType := s.state.GetDeviceIdentity()
@@ -157,6 +167,11 @@ func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handlePrepareUpload(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", 405)
+		return
+	}
+
 	var req struct {
 		Info  map[string]interface{} `json:"info"`
 		Files map[string]struct {
@@ -190,12 +205,21 @@ func (s *Server) handlePrepareUpload(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	sessionID := fmt.Sprintf("%d", time.Now().UnixNano())
+	sessionID, err := randomToken(32)
+	if err != nil {
+		http.Error(w, "Server Error", 500)
+		return
+	}
 	tokens := map[string]string{}
 	fileMap := map[string]*state.FileMeta{}
 
 	for id, info := range req.Files {
-		tokens[id] = fmt.Sprintf("%d", time.Now().UnixNano())
+		token, err := randomToken(32)
+		if err != nil {
+			http.Error(w, "Server Error", 500)
+			return
+		}
+		tokens[id] = token
 
 		fileName := info.FileName
 		if fileName == "" {
@@ -229,6 +253,11 @@ func (s *Server) handlePrepareUpload(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", 405)
+		return
+	}
+
 	q := r.URL.Query()
 	sessionID := q.Get("sessionId")
 	fileID := q.Get("fileId")
@@ -272,7 +301,11 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 		yearMonth := meta.Modified.Format("2006/01")
 		dir = filepath.Join(dir, yearMonth)
 	}
-	os.MkdirAll(dir, 0755)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		s.state.AddLog(fileName, 0, r.RemoteAddr, "Failed")
+		http.Error(w, "Server Error", 500)
+		return
+	}
 
 	outPath := filepath.Join(dir, fileName)
 	if _, err := os.Stat(outPath); err == nil {
@@ -313,6 +346,11 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleCancel(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", 405)
+		return
+	}
+
 	sessionID := r.URL.Query().Get("sessionId")
 	if sessionID == "" {
 		http.Error(w, "Missing sessionId", 400)
