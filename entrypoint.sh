@@ -36,8 +36,21 @@ echo "🛡️ Starting Admin Service on port ${LOCALSEND_ADMIN_PORT:-53318}..."
 /app/localsend-hub-admin &
 ADMIN_PID=$!
 
+# Forward SIGTERM/SIGINT to children (shell doesn't forward by default)
+# dumb-init sends signals to the shell PID 1; without this trap the Go
+# binaries never receive them and in-flight uploads get cut on docker stop.
+SHUTTING_DOWN=0
+trap 'SHUTTING_DOWN=1; kill -TERM $CORE_PID $ADMIN_PID 2>/dev/null' TERM INT
+
 # Wait for any process to exit
 wait -n $CORE_PID $ADMIN_PID 2>/dev/null || true
+
+# Signal-initiated shutdown: wait for both to drain, then clean exit
+if [ $SHUTTING_DOWN -eq 1 ]; then
+    wait $CORE_PID 2>/dev/null || true
+    wait $ADMIN_PID 2>/dev/null || true
+    exit 0
+fi
 
 # If core service exited, log and exit (admin can continue but we want both running)
 if ! kill -0 $CORE_PID 2>/dev/null; then

@@ -17,8 +17,10 @@ import (
 	"math/big"
 	"net/http"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 
 	"localsend-hub/internal/discovery"
@@ -38,7 +40,8 @@ func NewServer(st *state.State, port int) *Server {
 	return &Server{state: st, port: port}
 }
 
-// Start 启动 HTTPS 服务器
+// Start 启动 HTTPS 服务器，阻塞直到收到 SIGTERM/SIGINT 或服务器出错
+// 收到信号时会调用 Shutdown 等待在飞的上传完成 (最多 30s)
 func (s *Server) Start() error {
 	if err := s.generateCert(); err != nil {
 		return fmt.Errorf("cert generation failed: %w", err)
@@ -50,7 +53,7 @@ func (s *Server) Start() error {
 	addr := fmt.Sprintf(":%d", s.port)
 	log.Printf("🚀 Core Service listening on https://0.0.0.0%s", addr)
 
-	server := &http.Server{
+	srv := &http.Server{
 		Addr:    addr,
 		Handler: s.mux(),
 		TLSConfig: &tls.Config{
@@ -58,7 +61,25 @@ func (s *Server) Start() error {
 		},
 	}
 
-	return server.ListenAndServeTLS("", "")
+	errCh := make(chan error, 1)
+	go func() {
+		if err := srv.ListenAndServeTLS("", ""); err != nil && err != http.ErrServerClosed {
+			errCh <- err
+		}
+	}()
+
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, syscall.SIGTERM, syscall.SIGINT)
+
+	select {
+	case err := <-errCh:
+		return err
+	case <-sigCh:
+		log.Println("🛑 Shutting down (waiting up to 30s for in-flight uploads)...")
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		return srv.Shutdown(ctx)
+	}
 }
 
 // mux 构建并返回路由表 (独立出来便于测试)
