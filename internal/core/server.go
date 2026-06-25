@@ -140,6 +140,25 @@ func randomToken(byteLen int) (string, error) {
 	return hex.EncodeToString(b), nil
 }
 
+// validSenderFingerprint 校验发送设备指纹是否可作为路径子目录使用
+// LocalSend 协议中 fingerprint = SHA-256(cert DER) 的十六进制表示 (64 字符)
+// 严格校验可防止路径穿越攻击 (如 "../../etc/cron.d")
+func validSenderFingerprint(fp string) bool {
+	if len(fp) != 64 {
+		return false
+	}
+	for _, c := range fp {
+		switch {
+		case c >= '0' && c <= '9':
+		case c >= 'a' && c <= 'f':
+		case c >= 'A' && c <= 'F':
+		default:
+			return false
+		}
+	}
+	return true
+}
+
 // /info 响应 (不含 port/protocol)
 func (s *Server) getInfoResponse() map[string]interface{} {
 	alias, model, deviceType := s.state.GetDeviceIdentity()
@@ -197,10 +216,10 @@ func (s *Server) handlePrepareUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 提取发送设备的指纹
+	// 提取发送设备的指纹 (严格校验，防止路径穿越)
 	senderFingerprint := ""
 	if req.Info != nil {
-		if fp, ok := req.Info["fingerprint"].(string); ok {
+		if fp, ok := req.Info["fingerprint"].(string); ok && validSenderFingerprint(fp) {
 			senderFingerprint = fp
 		}
 	}
@@ -290,9 +309,9 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 
 	// 根据文件元信息中的修改时间构建 YYYY/MM 目录结构
 	dir := s.state.GetReceiveDir()
-	
-	// 按发送设备指纹创建子目录
-	if meta.SenderFingerprint != "" {
+
+	// 按发送设备指纹创建子目录 (防御性校验，防止路径穿越)
+	if validSenderFingerprint(meta.SenderFingerprint) {
 		dir = filepath.Join(dir, meta.SenderFingerprint)
 	}
 	
