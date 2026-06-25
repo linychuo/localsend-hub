@@ -81,7 +81,10 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if req.ReceiveDir != "" {
-		os.MkdirAll(req.ReceiveDir, 0755)
+		if err := os.MkdirAll(req.ReceiveDir, 0755); err != nil {
+			http.Error(w, "Cannot create directory: "+err.Error(), 400)
+			return
+		}
 		s.state.SetReceiveDir(req.ReceiveDir)
 		log.Println("📁 Receive directory updated:", req.ReceiveDir)
 	}
@@ -122,7 +125,7 @@ func (s *Server) handleIdentity(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleFiles(w http.ResponseWriter, r *http.Request) {
 	dir := s.state.GetReceiveDir()
-	var res []map[string]interface{}
+	res := []map[string]interface{}{}
 
 	_ = filepath.WalkDir(dir, func(path string, d os.DirEntry, err error) error {
 		if err != nil || d.IsDir() {

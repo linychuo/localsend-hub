@@ -285,10 +285,16 @@ async function saveConfig() {
     }
 
     try {
-        await fetch('/api/config', {
+        const res = await fetch('/api/config', {
             method: 'POST',
             body: JSON.stringify({ receiveDir: dir })
         });
+
+        if (!res.ok) {
+            const msg = await res.text().catch(() => '');
+            showToast('Failed to update directory: ' + (msg || res.statusText), 'error');
+            return;
+        }
 
         showToast('Directory updated successfully', 'success');
     } catch(e) {

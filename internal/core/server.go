@@ -307,14 +307,17 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// 使用 O_EXCL 原子创建，避免并发上传同名文件时互相覆盖
+	// 已存在则追加纳秒时间戳重命名，重命名后仍冲突则再试一次
+	ext := filepath.Ext(fileName)
+	base := strings.TrimSuffix(fileName, ext)
 	outPath := filepath.Join(dir, fileName)
-	if _, err := os.Stat(outPath); err == nil {
-		ext := filepath.Ext(fileName)
-		base := strings.TrimSuffix(fileName, ext)
-		outPath = filepath.Join(dir, fmt.Sprintf("%s_%d%s", base, time.Now().UnixNano(), ext))
-	}
 
-	f, err := os.Create(outPath)
+	f, err := os.OpenFile(outPath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0644)
+	if err != nil && os.IsExist(err) {
+		outPath = filepath.Join(dir, fmt.Sprintf("%s_%d%s", base, time.Now().UnixNano(), ext))
+		f, err = os.OpenFile(outPath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0644)
+	}
 	if err != nil {
 		s.state.AddLog(fileName, 0, r.RemoteAddr, "Failed")
 		http.Error(w, "Server Error", 500)
