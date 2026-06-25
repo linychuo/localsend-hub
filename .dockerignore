@@ -32,7 +32,3 @@ build.sh
 
 # GitHub
 .github
-
-# Qwen
-.qwen
-QWEN.md
