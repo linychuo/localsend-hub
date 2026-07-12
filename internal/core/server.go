@@ -145,14 +145,16 @@ func (s *Server) generateCert() error {
 func (s *Server) getDeviceInfo() map[string]interface{} {
 	alias, model, deviceType := s.state.GetDeviceIdentity()
 	return map[string]interface{}{
-		"alias":       alias,
-		"version":     "2.0",
-		"deviceModel": model,
-		"deviceType":  deviceType,
-		"fingerprint": s.fingerprint,
-		"port":        s.port,
-		"protocol":    "https",
-		"download":    false,
+		"alias":        alias,
+		"version":      "2.0",
+		"deviceModel":  model,
+		"deviceType":   deviceType,
+		"fingerprint":  s.fingerprint,
+		"port":         s.port,
+		"protocol":     "https",
+		"download":     false,
+		"announce":     true,
+		"announcement": true,
 	}
 }
 
@@ -189,23 +191,33 @@ func validSenderFingerprint(fp string) bool {
 func (s *Server) getInfoResponse() map[string]interface{} {
 	alias, model, deviceType := s.state.GetDeviceIdentity()
 	return map[string]interface{}{
-		"alias":       alias,
-		"version":     "2.0",
-		"deviceModel": model,
-		"deviceType":  deviceType,
-		"fingerprint": s.fingerprint,
-		"download":    false,
+		"alias":        alias,
+		"version":      "2.0",
+		"deviceModel":  model,
+		"deviceType":   deviceType,
+		"fingerprint":  s.fingerprint,
+		"download":     false,
+		"announce":     true,
+		"announcement": true,
 	}
 }
 
 // --- HTTP Handlers ---
 
 func (s *Server) handleInfo(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", 405)
+		return
+	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(s.getInfoResponse())
 }
 
 func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", 405)
+		return
+	}
 	// register 响应与 info 相同 (协议 spec)
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(s.getInfoResponse())

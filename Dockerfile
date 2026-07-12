@@ -19,7 +19,7 @@ FROM alpine:3.19
 # Add labels
 LABEL maintainer="LocalSend Hub"
 LABEL description="LocalSend Hub - LocalSend Receiver"
-LABEL version="2.0.0"
+LABEL version="1.0.0"
 
 # Install CA certificates (for HTTPS) and dumb-init for proper process management
 RUN apk --no-cache add ca-certificates tzdata dumb-init

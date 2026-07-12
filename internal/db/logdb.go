@@ -145,7 +145,7 @@ func (l *LogDB) AddLog(filename string, size int64, sender string, status string
 	defer l.mu.Unlock()
 
 	entry := LogEntry{
-		Time:     time.Now().Format("15:04:05"),
+		Time:     time.Now().Format("2006-01-02 15:04:05"),
 		Filename: filename,
 		Size:     size,
 		Sender:   sender,

@@ -1,6 +1,7 @@
 package admin
 
 import (
+	"context"
 	"embed"
 	"encoding/json"
 	"fmt"
@@ -8,7 +9,10 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"os/signal"
 	"path/filepath"
+	"syscall"
+	"time"
 
 	"localsend-hub/internal/state"
 )
@@ -47,7 +51,34 @@ func (s *Server) Start() {
 
 	addr := fmt.Sprintf("0.0.0.0:%d", s.port)
 	log.Printf("🛡️ Admin Panel listening on http://%s", addr)
-	log.Fatal(http.ListenAndServe(addr, mux))
+
+	srv := &http.Server{
+		Addr:    addr,
+		Handler: mux,
+	}
+
+	errCh := make(chan error, 1)
+	go func() {
+		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			errCh <- err
+		}
+	}()
+
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, syscall.SIGTERM, syscall.SIGINT)
+
+	select {
+	case err := <-errCh:
+		log.Fatalf("❌ Admin Service failed: %v", err)
+	case <-sigCh:
+		log.Println("🛑 Admin Service shutting down...")
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := srv.Shutdown(ctx); err != nil {
+			log.Fatalf("❌ Admin Service shutdown error: %v", err)
+		}
+		log.Println("✅ Admin Service stopped.")
+	}
 }
 
 func (s *Server) handleLogs(w http.ResponseWriter, r *http.Request) {

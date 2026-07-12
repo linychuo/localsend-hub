@@ -317,13 +317,13 @@ The container includes an automatic health check that verifies the admin API is 
 | Cloud storage backend | 🔲 Planned |
 | mDNS/Bonjour discovery | 🔲 Planned |
 
-See [requirements.md](requirments.md) for detailed feature specifications.
+See [requirements.md](requirements.md) for detailed feature specifications.
 
 ## 📚 References
 
 - [LocalSend Protocol Specification](https://github.com/localsend/protocol)
 - [Architecture Design Document](DESIGN.md)
-- [Feature Requirements](requirments.md)
+- [Feature Requirements](requirements.md)
 
 ## 📄 License
 
