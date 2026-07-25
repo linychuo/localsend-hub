@@ -12,8 +12,9 @@ import (
 	"localsend-hub/internal/db"
 )
 
-// sessionTTL 是 prepare-upload 创建的 session 在无任何进行中上传时的最长存活时间
-// 超过该时长仍未开始 upload 的僵尸 session 会被后台清理，避免内存泄漏
+// sessionTTL 是 prepare-upload 创建的 session 的空闲超时时间
+// 只要 session 还在持续活动 (有文件在传或刚传完一个) 就会被刷新，不会过期；
+// 只有真正闲置超过该时长、且无任何进行中上传的僵尸 session 才会被清理，避免内存泄漏
 const sessionTTL = 10 * time.Minute
 
 // FileMeta 存储文件的元信息
@@ -64,8 +65,9 @@ type State struct {
 	// sessionTokens 存储 prepare-upload 返回的 file tokens (用于 upload 验证)
 	// 结构: sessionID -> fileID -> token
 	sessionTokens map[string]map[string]string
-	// sessionCreatedAt 记录 session 创建时间，用于清理从未 upload/cancel 的僵尸 session
-	sessionCreatedAt map[string]time.Time
+	// sessionLastActive 记录 session 最近一次活动时间 (创建/文件上传开始或结束)
+	// 用于按空闲超时清理僵尸 session：只要还在持续收文件就会被刷新，不会误删长传输
+	sessionLastActive map[string]time.Time
 	// uploadCancelFuncs 正在进行的上传的 cancel 函数 (用于立即中断)
 	// 结构: sessionID -> fileID -> cancel
 	uploadCancelFuncs map[string]map[string]context.CancelFunc
@@ -94,10 +96,10 @@ func New() *State {
 		Alias:       "LocalSend Hub",
 		DeviceModel: "LocalSend Hub Server",
 		DeviceType:  "server",
-		Sessions:        make(map[string]map[string]*FileMeta),
-		sessionTokens:   make(map[string]map[string]string),
-		sessionCreatedAt:  make(map[string]time.Time),
-		uploadCancelFuncs: make(map[string]map[string]context.CancelFunc),
+		Sessions:           make(map[string]map[string]*FileMeta),
+		sessionTokens:      make(map[string]map[string]string),
+		sessionLastActive:  make(map[string]time.Time),
+		uploadCancelFuncs:  make(map[string]map[string]context.CancelFunc),
 	}
 
 	// 2. 尝试加载配置文件 (覆盖默认值)
@@ -184,10 +186,10 @@ func NewForTesting(receiveDir string) *State {
 		Alias:             "TestHub",
 		DeviceModel:       "TestHub Server",
 		DeviceType:        "server",
-		Sessions:          make(map[string]map[string]*FileMeta),
-		sessionTokens:     make(map[string]map[string]string),
-		sessionCreatedAt:  make(map[string]time.Time),
-		uploadCancelFuncs: make(map[string]map[string]context.CancelFunc),
+		Sessions:           make(map[string]map[string]*FileMeta),
+		sessionTokens:      make(map[string]map[string]string),
+		sessionLastActive:  make(map[string]time.Time),
+		uploadCancelFuncs:  make(map[string]map[string]context.CancelFunc),
 	}
 }
 
@@ -223,8 +225,8 @@ func (s *State) RegisterSession(sessionID string, fileMap map[string]*FileMeta, 
 	s.Sessions[sessionID] = fileMap
 	// 存储 tokens 用于后续 upload 验证
 	s.sessionTokens[sessionID] = tokens
-	// 记录创建时间，用于清理僵尸 session
-	s.sessionCreatedAt[sessionID] = time.Now()
+	// 记录最近活跃时间，用于空闲超时清理
+	s.sessionLastActive[sessionID] = time.Now()
 }
 
 // ValidateToken 验证 file token 是否匹配
@@ -266,11 +268,12 @@ func (s *State) CancelSession(sessionID string) {
 	delete(s.Sessions, sessionID)
 	delete(s.uploadCancelFuncs, sessionID)
 	delete(s.sessionTokens, sessionID)
-	delete(s.sessionCreatedAt, sessionID)
+	delete(s.sessionLastActive, sessionID)
 }
 
 // RegisterUploadCancel 注册某个文件上传的 cancel 函数，用于中途取消传输
 // 同一 session 下多个文件并发上传时，按 fileID 分别存储，互不覆盖
+// 同时刷新 session 的最近活跃时间，保证长文件传输期间不会被空闲超时清理
 func (s *State) RegisterUploadCancel(sessionID, fileID string, cancel context.CancelFunc) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -278,6 +281,7 @@ func (s *State) RegisterUploadCancel(sessionID, fileID string, cancel context.Ca
 		s.uploadCancelFuncs[sessionID] = make(map[string]context.CancelFunc)
 	}
 	s.uploadCancelFuncs[sessionID][fileID] = cancel
+	s.sessionLastActive[sessionID] = time.Now()
 }
 
 // CleanupUpload 清理某个文件上传的 cancel 函数和 token（单个文件上传完成时调用）
@@ -301,35 +305,47 @@ func (s *State) CleanupUpload(sessionID, fileID string) {
 		delete(files, fileID)
 		if len(files) == 0 {
 			delete(s.Sessions, sessionID)
-			delete(s.sessionCreatedAt, sessionID)
+			delete(s.sessionLastActive, sessionID)
+		} else {
+			// session 还有未完成上传，刷新活跃时间，防止被空闲超时清理
+			s.sessionLastActive[sessionID] = time.Now()
 		}
 	}
 }
 
-// sweepExpiredSessions 定期清理从未开始上传的僵尸 session
-// 只清理没有任何进行中上传 (uploadCancelFuncs 为空) 且创建时间超过 sessionTTL 的 session，
-// 避免误删正在传输大文件的活跃 session
+// sweepExpiredSessions 定期清理僵尸 session
+// 只清理没有任何进行中上传 (uploadCancelFuncs 为空) 且空闲超过 sessionTTL 的 session，
+// 活跃时间由 RegisterSession / RegisterUploadCancel / CleanupUpload 刷新，
+// 避免误删正在传输大文件、或多文件批次传输中长时间跨度的活跃 session
 func (s *State) sweepExpiredSessions() {
 	ticker := time.NewTicker(sessionTTL / 2)
 	defer ticker.Stop()
 
 	for range ticker.C {
-		now := time.Now()
-		s.mu.Lock()
-		for sid, created := range s.sessionCreatedAt {
-			if len(s.uploadCancelFuncs[sid]) > 0 {
-				continue // 有进行中的上传，跳过
-			}
-			if now.Sub(created) > sessionTTL {
-				delete(s.Sessions, sid)
-				delete(s.sessionTokens, sid)
-				delete(s.uploadCancelFuncs, sid)
-				delete(s.sessionCreatedAt, sid)
-				log.Printf("🧹 Cleaned up expired session: %s", sid)
-			}
-		}
-		s.mu.Unlock()
+		s.sweepExpiredSessionsOnce(time.Now(), sessionTTL)
 	}
+}
+
+// sweepExpiredSessionsOnce 执行一轮僵尸 session 清理 (可注入 now/ttl 用于测试)
+// 返回被清理的 session 数量
+func (s *State) sweepExpiredSessionsOnce(now time.Time, ttl time.Duration) int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	cleaned := 0
+	for sid, lastActive := range s.sessionLastActive {
+		if len(s.uploadCancelFuncs[sid]) > 0 {
+			continue // 有进行中的上传，跳过
+		}
+		if now.Sub(lastActive) > ttl {
+			delete(s.Sessions, sid)
+			delete(s.sessionTokens, sid)
+			delete(s.uploadCancelFuncs, sid)
+			delete(s.sessionLastActive, sid)
+			log.Printf("🧹 Cleaned up expired session: %s", sid)
+			cleaned++
+		}
+	}
+	return cleaned
 }
 
 // AddLog 线程安全地添加日志，并自动清理旧日志
