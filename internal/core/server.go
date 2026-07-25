@@ -78,7 +78,9 @@ func (s *Server) Start() error {
 		log.Println("🛑 Shutting down (waiting up to 30s for in-flight uploads)...")
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
-		return srv.Shutdown(ctx)
+		err := srv.Shutdown(ctx)
+		s.state.CloseDB()
+		return err
 	}
 }
 
@@ -249,7 +251,7 @@ func (s *Server) handlePrepareUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if req.Files == nil || len(req.Files) == 0 {
+	if len(req.Files) == 0 {
 		http.Error(w, "No files specified", 400)
 		return
 	}
@@ -280,7 +282,7 @@ func (s *Server) handlePrepareUpload(w http.ResponseWriter, r *http.Request) {
 
 		fileName := info.FileName
 		if fileName == "" {
-			fileName = info.ID
+			fileName = id
 		}
 
 		var modifiedTime *time.Time

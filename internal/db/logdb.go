@@ -121,9 +121,9 @@ func NewLogDB(maxLogs int) (*LogDB, error) {
 	return l, nil
 }
 
-// OpenLogDB 以只读方式打开数据库连接（用于非写入进程，如 Admin 服务）
-// 不执行 WAL 设置、表创建等初始化操作，避免多进程锁冲突
-// WAL 模式由核心服务在初始化时设置，会在数据库文件上持久化，只读进程无需重复设置
+// OpenLogDB 打开一个已存在的数据库连接（用于 Admin 服务）
+// 不执行 WAL 设置、表创建等 schema 初始化 (由核心服务负责)，避免多进程锁冲突
+// 但仍设置 busy_timeout：Admin 的 ClearLogs 会写库，需要在与核心并发写时重试而非直接失败
 func OpenLogDB() (*LogDB, error) {
 	dbPath := GetDBPath()
 
@@ -136,6 +136,11 @@ func OpenLogDB() (*LogDB, error) {
 		return nil, err
 	}
 
+	// 设置 busy_timeout，避免与核心服务并发写时立即返回 SQLITE_BUSY
+	if err := dbExecWithRetry(db, "PRAGMA busy_timeout=5000", 3); err != nil {
+		log.Printf("⚠️ Admin: Failed to set busy_timeout: %v", err)
+	}
+
 	return &LogDB{db: db, max: 1000}, nil
 }
 
@@ -145,7 +150,7 @@ func (l *LogDB) AddLog(filename string, size int64, sender string, status string
 	defer l.mu.Unlock()
 
 	entry := LogEntry{
-		Time:     time.Now().Format("2006-01-02 15:04:05"),
+		Time:     time.Now().Format(time.RFC3339),
 		Filename: filename,
 		Size:     size,
 		Sender:   sender,

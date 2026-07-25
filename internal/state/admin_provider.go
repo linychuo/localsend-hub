@@ -9,4 +9,5 @@ type AdminStateProvider interface {
 	ClearLogs()
 	GetReceiveDir() string
 	SetReceiveDir(dir string)
+	CloseDB()
 }

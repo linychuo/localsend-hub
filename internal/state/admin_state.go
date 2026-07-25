@@ -50,13 +50,13 @@ func NewAdminState() *AdminState {
 	// 加载初始配置
 	s.loadFromConfigFile()
 
-	// 初始化 SQLite 数据库 (只读打开，由 Core 服务负责初始化)
+	// 打开 SQLite 数据库 (schema 由 Core 服务负责初始化)
 	logDB, err := db.OpenLogDB()
 	if err != nil {
 		log.Printf("⚠️ Admin: Failed to open log database (Core service may not be running yet): %v", err)
 	} else {
 		s.LogDB = logDB
-		log.Println("✅ Admin: Log database opened (read-only).")
+		log.Println("✅ Admin: Log database opened.")
 	}
 
 	// 确保接收目录存在
@@ -85,12 +85,18 @@ func (s *AdminState) reloadIfConfigChanged() bool {
 		return false
 	}
 
-	if info.ModTime().After(s.lastModTime) {
+	// lastModTime 由 watch goroutine 和 saveToFile 并发访问，需加锁
+	s.mu.Lock()
+	changed := info.ModTime().After(s.lastModTime)
+	if changed {
 		s.lastModTime = info.ModTime()
-		s.loadFromConfigFile()
-		return true
 	}
-	return false
+	s.mu.Unlock()
+
+	if changed {
+		s.loadFromConfigFile()
+	}
+	return changed
 }
 
 // loadFromConfigFile 从配置文件读取状态
@@ -170,7 +176,9 @@ func (s *AdminState) saveToFile() {
 
 	// 更新最后修改时间
 	if info, err := os.Stat(s.configPath); err == nil {
+		s.mu.Lock()
 		s.lastModTime = info.ModTime()
+		s.mu.Unlock()
 	}
 }
 
@@ -264,4 +272,13 @@ func (s *AdminState) GetMaxLogs() int {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.MaxLogs
+}
+
+// CloseDB 关闭日志数据库连接 (优雅退出时调用)
+func (s *AdminState) CloseDB() {
+	if s.LogDB != nil {
+		if err := s.LogDB.Close(); err != nil {
+			log.Printf("⚠️ Admin: Failed to close log database: %v", err)
+		}
+	}
 }

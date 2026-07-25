@@ -12,6 +12,10 @@ import (
 	"localsend-hub/internal/db"
 )
 
+// sessionTTL 是 prepare-upload 创建的 session 在无任何进行中上传时的最长存活时间
+// 超过该时长仍未开始 upload 的僵尸 session 会被后台清理，避免内存泄漏
+const sessionTTL = 10 * time.Minute
+
 // FileMeta 存储文件的元信息
 type FileMeta struct {
 	FileName        string
@@ -60,6 +64,8 @@ type State struct {
 	// sessionTokens 存储 prepare-upload 返回的 file tokens (用于 upload 验证)
 	// 结构: sessionID -> fileID -> token
 	sessionTokens map[string]map[string]string
+	// sessionCreatedAt 记录 session 创建时间，用于清理从未 upload/cancel 的僵尸 session
+	sessionCreatedAt map[string]time.Time
 	// uploadCancelFuncs 正在进行的上传的 cancel 函数 (用于立即中断)
 	// 结构: sessionID -> fileID -> cancel
 	uploadCancelFuncs map[string]map[string]context.CancelFunc
@@ -90,6 +96,7 @@ func New() *State {
 		DeviceType:  "server",
 		Sessions:        make(map[string]map[string]*FileMeta),
 		sessionTokens:   make(map[string]map[string]string),
+		sessionCreatedAt:  make(map[string]time.Time),
 		uploadCancelFuncs: make(map[string]map[string]context.CancelFunc),
 	}
 
@@ -118,6 +125,9 @@ func New() *State {
 
 	// 确保接收目录存在
 	os.MkdirAll(s.ReceiveDir, 0755)
+
+	// 启动僵尸 session 清理 (仅生产实例，测试实例不启动 goroutine)
+	go s.sweepExpiredSessions()
 
 	return s
 }
@@ -176,6 +186,7 @@ func NewForTesting(receiveDir string) *State {
 		DeviceType:        "server",
 		Sessions:          make(map[string]map[string]*FileMeta),
 		sessionTokens:     make(map[string]map[string]string),
+		sessionCreatedAt:  make(map[string]time.Time),
 		uploadCancelFuncs: make(map[string]map[string]context.CancelFunc),
 	}
 }
@@ -212,6 +223,8 @@ func (s *State) RegisterSession(sessionID string, fileMap map[string]*FileMeta, 
 	s.Sessions[sessionID] = fileMap
 	// 存储 tokens 用于后续 upload 验证
 	s.sessionTokens[sessionID] = tokens
+	// 记录创建时间，用于清理僵尸 session
+	s.sessionCreatedAt[sessionID] = time.Now()
 }
 
 // ValidateToken 验证 file token 是否匹配
@@ -253,6 +266,7 @@ func (s *State) CancelSession(sessionID string) {
 	delete(s.Sessions, sessionID)
 	delete(s.uploadCancelFuncs, sessionID)
 	delete(s.sessionTokens, sessionID)
+	delete(s.sessionCreatedAt, sessionID)
 }
 
 // RegisterUploadCancel 注册某个文件上传的 cancel 函数，用于中途取消传输
@@ -287,7 +301,34 @@ func (s *State) CleanupUpload(sessionID, fileID string) {
 		delete(files, fileID)
 		if len(files) == 0 {
 			delete(s.Sessions, sessionID)
+			delete(s.sessionCreatedAt, sessionID)
 		}
+	}
+}
+
+// sweepExpiredSessions 定期清理从未开始上传的僵尸 session
+// 只清理没有任何进行中上传 (uploadCancelFuncs 为空) 且创建时间超过 sessionTTL 的 session，
+// 避免误删正在传输大文件的活跃 session
+func (s *State) sweepExpiredSessions() {
+	ticker := time.NewTicker(sessionTTL / 2)
+	defer ticker.Stop()
+
+	for range ticker.C {
+		now := time.Now()
+		s.mu.Lock()
+		for sid, created := range s.sessionCreatedAt {
+			if len(s.uploadCancelFuncs[sid]) > 0 {
+				continue // 有进行中的上传，跳过
+			}
+			if now.Sub(created) > sessionTTL {
+				delete(s.Sessions, sid)
+				delete(s.sessionTokens, sid)
+				delete(s.uploadCancelFuncs, sid)
+				delete(s.sessionCreatedAt, sid)
+				log.Printf("🧹 Cleaned up expired session: %s", sid)
+			}
+		}
+		s.mu.Unlock()
 	}
 }
 
@@ -346,4 +387,13 @@ func (s *State) GetReceiveDir() string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.ReceiveDir
+}
+
+// CloseDB 关闭日志数据库连接 (优雅退出时调用)
+func (s *State) CloseDB() {
+	if s.LogDB != nil {
+		if err := s.LogDB.Close(); err != nil {
+			log.Printf("⚠️ Failed to close log database: %v", err)
+		}
+	}
 }

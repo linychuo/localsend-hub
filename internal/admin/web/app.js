@@ -6,7 +6,14 @@ const state = {
     identity: {},
     autoRefreshInterval: null,
     startTime: Date.now(),
-    sidebarOpen: false
+    sidebarOpen: false,
+    // Files 查询与分页状态
+    filesQuery: { keyword: '', type: '', from: '', to: '' },
+    filesPage: 1,
+    filesPageSize: 20,
+    filesTotal: 0,
+    grandTotal: 0,
+    grandSize: 0
 };
 
 // ===== Mobile Sidebar =====
@@ -136,46 +143,134 @@ async function saveIdentity() {
 
 async function loadFiles() {
     try {
-        const res = await fetch('/api/files');
-        const files = await res.json();
-        state.files = files;
-        
-        const tbody = document.getElementById('filesBody');
-        
-        if (files.length === 0) {
-            tbody.innerHTML = `
-                <tr>
-                    <td colspan="4" class="empty-state">
-                        <i class="fas fa-inbox fa-3x"></i>
-                        <p>No files received yet</p>
-                    </td>
-                </tr>
-            `;
-            return;
-        }
-        
-        tbody.innerHTML = files.map(f => `
-            <tr>
-                <td>
-                    <i class="fas fa-file" style="color: var(--primary); margin-right: 0.5rem;"></i>
-                    ${escapeHtml(f.name)}
-                </td>
-                <td>${formatSize(f.size)}</td>
-                <td>${f.modTime}</td>
-                <td>
-                    <a href="${f.url}" class="file-link" target="_blank">
-                        <i class="fas fa-download"></i> Download
-                    </a>
-                </td>
-            </tr>
-        `).join('');
-        
-        // Update dashboard stats
+        const params = new URLSearchParams();
+        if (state.filesQuery.keyword) params.set('keyword', state.filesQuery.keyword);
+        if (state.filesQuery.type) params.set('type', state.filesQuery.type);
+        if (state.filesQuery.from) params.set('from', state.filesQuery.from);
+        if (state.filesQuery.to) params.set('to', state.filesQuery.to);
+        params.set('page', state.filesPage);
+        params.set('pageSize', state.filesPageSize);
+
+        const res = await fetch('/api/files?' + params.toString());
+        const data = await res.json();
+
+        state.files = data.items || [];
+        state.filesTotal = data.total || 0;
+        state.filesPage = data.page || 1;
+        state.filesPageSize = data.pageSize || state.filesPageSize;
+        state.grandTotal = data.grandTotal || 0;
+        state.grandSize = data.grandSize || 0;
+
+        updateTypeOptions(data.availableTypes || []);
+        renderFilesTable();
+        renderFilesPagination();
         updateStats();
     } catch(e) {
         console.error('Failed to load files:', e);
         showToast('Failed to load files', 'error');
     }
+}
+
+function renderFilesTable() {
+    const tbody = document.getElementById('filesBody');
+
+    if (state.files.length === 0) {
+        tbody.innerHTML = `
+            <tr>
+                <td colspan="4" class="empty-state">
+                    <i class="fas fa-inbox fa-3x"></i>
+                    <p>No files match your query</p>
+                </td>
+            </tr>
+        `;
+        return;
+    }
+
+    tbody.innerHTML = state.files.map(f => `
+        <tr>
+            <td>
+                <i class="fas fa-file" style="color: var(--primary); margin-right: 0.5rem;"></i>
+                ${escapeHtml(f.name)}
+            </td>
+            <td>${formatSize(f.size)}</td>
+            <td>${formatDateTime(f.modTime)}</td>
+            <td>
+                <a href="${f.url}" class="file-link" target="_blank">
+                    <i class="fas fa-download"></i> Download
+                </a>
+            </td>
+        </tr>
+    `).join('');
+}
+
+function renderFilesPagination() {
+    const pages = Math.max(1, Math.ceil(state.filesTotal / state.filesPageSize));
+    if (state.filesPage > pages) state.filesPage = pages;
+
+    const totalEl = document.getElementById('filesTotal');
+    if (totalEl) totalEl.textContent = `${state.filesTotal} file(s)`;
+
+    const infoEl = document.getElementById('filesPageInfo');
+    if (infoEl) infoEl.textContent = `Page ${state.filesPage} / ${pages}`;
+
+    const prev = document.getElementById('fPrev');
+    const next = document.getElementById('fNext');
+    if (prev) prev.disabled = state.filesPage <= 1;
+    if (next) next.disabled = state.filesPage >= pages;
+}
+
+function updateTypeOptions(types) {
+    const sel = document.getElementById('fType');
+    if (!sel) return;
+    const current = sel.value;
+    sel.innerHTML = '<option value="">All types</option>' +
+        types.map(t => `<option value="${escapeHtml(t)}">.${escapeHtml(t)}</option>`).join('');
+    // 保留当前选中项 (若仍存在)
+    if (current && types.includes(current)) {
+        sel.value = current;
+    }
+}
+
+function applyFileFilter() {
+    state.filesQuery = {
+        keyword: document.getElementById('fKeyword').value.trim(),
+        type: document.getElementById('fType').value,
+        from: document.getElementById('fFrom').value,
+        to: document.getElementById('fTo').value
+    };
+    state.filesPage = 1;
+    loadFiles();
+}
+
+function resetFileFilter() {
+    document.getElementById('fKeyword').value = '';
+    document.getElementById('fType').value = '';
+    document.getElementById('fFrom').value = '';
+    document.getElementById('fTo').value = '';
+    state.filesQuery = { keyword: '', type: '', from: '', to: '' };
+    state.filesPage = 1;
+    loadFiles();
+}
+
+function filesPrevPage() {
+    if (state.filesPage > 1) {
+        state.filesPage--;
+        loadFiles();
+    }
+}
+
+function filesNextPage() {
+    const pages = Math.max(1, Math.ceil(state.filesTotal / state.filesPageSize));
+    if (state.filesPage < pages) {
+        state.filesPage++;
+        loadFiles();
+    }
+}
+
+function changeFilesPageSize() {
+    state.filesPageSize = parseInt(document.getElementById('fPageSize').value, 10) || 20;
+    state.filesPage = 1;
+    loadFiles();
 }
 
 async function loadLogs() {
@@ -202,7 +297,7 @@ async function loadLogs() {
             <tr>
                 <td>
                     <i class="fas fa-clock" style="color: var(--text-muted); margin-right: 0.5rem;"></i>
-                    ${l.time}
+                    ${formatDateTime(l.time)}
                 </td>
                 <td>
                     <i class="fas fa-file" style="color: var(--primary); margin-right: 0.5rem;"></i>
@@ -256,7 +351,7 @@ async function loadDashboard() {
             </div>
             <div class="activity-meta">
                 <span>${formatSize(l.size)}</span>
-                <span>${l.time}</span>
+                <span>${formatDateTime(l.time)}</span>
             </div>
         </div>
     `).join('');
@@ -267,13 +362,12 @@ async function loadDashboard() {
 function updateStats() {
     const successCount = state.logs.filter(l => l.status === 'Success').length;
     const failCount = state.logs.filter(l => l.status !== 'Success').length;
-    const totalFiles = state.files.length;
-    const totalSize = state.files.reduce((sum, f) => sum + f.size, 0);
-    
+
     document.getElementById('successCount').textContent = successCount;
     document.getElementById('failCount').textContent = failCount;
-    document.getElementById('totalFiles').textContent = totalFiles;
-    document.getElementById('totalSize').textContent = formatSize(totalSize);
+    // 文件总数/总大小取全目录统计，不受过滤和分页影响
+    document.getElementById('totalFiles').textContent = state.grandTotal;
+    document.getElementById('totalSize').textContent = formatSize(state.grandSize);
 }
 
 async function saveConfig() {
@@ -374,6 +468,17 @@ function formatSize(bytes) {
     return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
 }
 
+// formatDateTime 将服务端返回的 RFC3339 时间戳按查看者本地时区格式化
+// 无法解析时原样返回 (兼容旧格式)
+function formatDateTime(s) {
+    if (!s) return '';
+    const d = new Date(s);
+    if (isNaN(d.getTime())) return s;
+    const pad = n => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} `
+         + `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+}
+
 function escapeHtml(text) {
     const div = document.createElement('div');
     div.textContent = text;
@@ -441,3 +546,8 @@ window.refreshData = refreshData;
 window.toggleTheme = toggleTheme;
 window.toggleSidebar = toggleSidebar;
 window.closeSidebar = closeSidebar;
+window.applyFileFilter = applyFileFilter;
+window.resetFileFilter = resetFileFilter;
+window.filesPrevPage = filesPrevPage;
+window.filesNextPage = filesNextPage;
+window.changeFilesPageSize = changeFilesPageSize;

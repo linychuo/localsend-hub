@@ -11,6 +11,9 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"sort"
+	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -47,7 +50,8 @@ func (s *Server) Start() {
 	mux.Handle("/", fileServer)
 
 	// 静态文件代理 (让前端能下载文件)
-	mux.Handle("/files/", http.StripPrefix("/files/", http.FileServer(http.Dir(s.state.GetReceiveDir()))))
+	// 每次请求实时读取接收目录，避免运行时修改接收目录后下载链接失效
+	mux.Handle("/files/", http.StripPrefix("/files/", s.serveFiles()))
 
 	addr := fmt.Sprintf("0.0.0.0:%d", s.port)
 	log.Printf("🛡️ Admin Panel listening on http://%s", addr)
@@ -77,6 +81,7 @@ func (s *Server) Start() {
 		if err := srv.Shutdown(ctx); err != nil {
 			log.Fatalf("❌ Admin Service shutdown error: %v", err)
 		}
+		s.state.CloseDB()
 		log.Println("✅ Admin Service stopped.")
 	}
 }
@@ -154,27 +159,154 @@ func (s *Server) handleIdentity(w http.ResponseWriter, r *http.Request) {
 	http.Error(w, "Method not allowed", 405)
 }
 
+// serveFiles 返回一个每次请求都实时读取当前接收目录的文件服务 handler
+// http.Dir 会清理路径并阻止 ".." 穿越，安全性与 http.FileServer 一致
+func (s *Server) serveFiles() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.FileServer(http.Dir(s.state.GetReceiveDir())).ServeHTTP(w, r)
+	})
+}
+
 func (s *Server) handleFiles(w http.ResponseWriter, r *http.Request) {
 	dir := s.state.GetReceiveDir()
-	res := []map[string]interface{}{}
+
+	q := r.URL.Query()
+	keyword := strings.ToLower(strings.TrimSpace(q.Get("keyword")))
+	typeFilter := strings.ToLower(strings.TrimPrefix(q.Get("type"), "."))
+	fromTime, hasFrom := parseFilterDate(q.Get("from"), false)
+	toTime, hasTo := parseFilterDate(q.Get("to"), true)
+
+	type fileItem struct {
+		name    string
+		relPath string
+		size    int64
+		modTime time.Time
+	}
+
+	var all []fileItem
+	var grandTotal int
+	var grandSize int64
+	typeSet := map[string]struct{}{}
 
 	_ = filepath.WalkDir(dir, func(path string, d os.DirEntry, err error) error {
 		if err != nil || d.IsDir() {
 			return nil
 		}
-		info, _ := d.Info()
-		// 计算相对于接收目录的路径
+		info, err := d.Info()
+		if err != nil {
+			return nil
+		}
 		relPath, _ := filepath.Rel(dir, path)
-		res = append(res, map[string]interface{}{
-			"name":    d.Name(),
-			"path":    relPath,
-			"size":    info.Size(),
-			"modTime": info.ModTime().Format("2006-01-02 15:04:05"),
-			"url":     "/files/" + filepath.ToSlash(relPath),
+		grandTotal++
+		grandSize += info.Size()
+
+		ext := strings.ToLower(strings.TrimPrefix(filepath.Ext(d.Name()), "."))
+		if ext != "" {
+			typeSet[ext] = struct{}{}
+		}
+
+		// 应用过滤条件
+		if keyword != "" && !strings.Contains(strings.ToLower(d.Name()), keyword) {
+			return nil
+		}
+		if typeFilter != "" && ext != typeFilter {
+			return nil
+		}
+		if hasFrom && info.ModTime().Before(fromTime) {
+			return nil
+		}
+		if hasTo && !info.ModTime().Before(toTime) {
+			return nil
+		}
+
+		all = append(all, fileItem{
+			name:    d.Name(),
+			relPath: relPath,
+			size:    info.Size(),
+			modTime: info.ModTime(),
 		})
 		return nil
 	})
 
+	// 按修改时间倒序 (最新在前)
+	sort.Slice(all, func(i, j int) bool {
+		return all[i].modTime.After(all[j].modTime)
+	})
+
+	total := len(all)
+
+	// 分页参数
+	page := atoiDefault(q.Get("page"), 1)
+	if page < 1 {
+		page = 1
+	}
+	pageSize := atoiDefault(q.Get("pageSize"), 20)
+	if pageSize < 1 {
+		pageSize = 20
+	}
+	if pageSize > 500 {
+		pageSize = 500
+	}
+
+	start := (page - 1) * pageSize
+	if start > total {
+		start = total
+	}
+	end := start + pageSize
+	if end > total {
+		end = total
+	}
+
+	items := []map[string]interface{}{}
+	for _, f := range all[start:end] {
+		items = append(items, map[string]interface{}{
+			"name":    f.name,
+			"path":    f.relPath,
+			"size":    f.size,
+			"modTime": f.modTime.Format(time.RFC3339),
+			"url":     "/files/" + filepath.ToSlash(f.relPath),
+		})
+	}
+
+	availableTypes := make([]string, 0, len(typeSet))
+	for t := range typeSet {
+		availableTypes = append(availableTypes, t)
+	}
+	sort.Strings(availableTypes)
+
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(res)
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"items":          items,
+		"total":          total,
+		"page":           page,
+		"pageSize":       pageSize,
+		"availableTypes": availableTypes,
+		"grandTotal":     grandTotal,
+		"grandSize":      grandSize,
+	})
+}
+
+// parseFilterDate 解析 YYYY-MM-DD 过滤日期 (按本地时区)
+// endOfDay=true 时返回次日零点，用于 "到" 的开区间上界 (含当天)
+func parseFilterDate(v string, endOfDay bool) (time.Time, bool) {
+	v = strings.TrimSpace(v)
+	if v == "" {
+		return time.Time{}, false
+	}
+	t, err := time.ParseInLocation("2006-01-02", v, time.Local)
+	if err != nil {
+		return time.Time{}, false
+	}
+	if endOfDay {
+		t = t.AddDate(0, 0, 1)
+	}
+	return t, true
+}
+
+// atoiDefault 解析整数，失败时返回默认值
+func atoiDefault(v string, def int) int {
+	if n, err := strconv.Atoi(strings.TrimSpace(v)); err == nil {
+		return n
+	}
+	return def
 }

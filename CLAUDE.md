@@ -36,7 +36,7 @@ The build uses `CGO_ENABLED=0` and the pure-Go `modernc.org/sqlite` driver — n
 
 The two processes coordinate through three on-disk artifacts, not through memory:
 
-1. **`localsend_config.json`** (path from `state.GetConfigPath()`: `LOCALSEND_CONFIG_PATH` env → `/app/config/...` if `/app/config` exists → cwd). The core service writes it (every 15s and on change via `State.Save()`); the admin service **polls** it every 2s (`admin_state.go` `watchInterval`) and reloads. Admin writes go through the same file — there is no API call from admin to core.
+1. **`localsend_config.json`** (path from `state.GetConfigPath()`: `LOCALSEND_CONFIG_PATH` env → `/app/config/...` if `/app/config` exists → cwd). The core service writes it **on change** via `State.Save()` (triggered by `SetDeviceIdentity`/`SetReceiveDir`); the admin service **polls** it every 2s (`admin_state.go` `watchInterval`) and reloads. Admin writes go through the same file — there is no API call from admin to core.
 2. **`localsend_logs.db`** (SQLite, path from `db.GetDBPath()`). The core service owns the schema and writes transfer logs; the admin service opens it **read-only** to display logs. If the admin starts before the core, log loading silently fails and retries on next request.
 3. **`received/`** directory — written only by core, read by admin for the file list/download endpoints.
 

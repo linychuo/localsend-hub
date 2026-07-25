@@ -175,6 +175,21 @@
                                 </button>
                             </div>
                         </div>
+                        <div class="files-filter">
+                            <input type="text" id="fKeyword" placeholder="Filename contains..."
+                                   onkeydown="if(event.key==='Enter')applyFileFilter()">
+                            <select id="fType">
+                                <option value="">All types</option>
+                            </select>
+                            <input type="date" id="fFrom" title="Modified from">
+                            <input type="date" id="fTo" title="Modified to">
+                            <button class="btn btn-sm btn-primary" onclick="applyFileFilter()">
+                                <i class="fas fa-search"></i> Search
+                            </button>
+                            <button class="btn btn-sm btn-outline" onclick="resetFileFilter()">
+                                <i class="fas fa-undo"></i> Reset
+                            </button>
+                        </div>
                         <div class="table-container">
                             <table class="data-table">
                                 <thead>
@@ -194,6 +209,27 @@
                                     </tr>
                                 </tbody>
                             </table>
+                        </div>
+                        <div class="files-pagination">
+                            <span id="filesTotal" class="pagination-total"></span>
+                            <div class="pagination-controls">
+                                <label>
+                                    Per page
+                                    <select id="fPageSize" onchange="changeFilesPageSize()">
+                                        <option value="10">10</option>
+                                        <option value="20" selected>20</option>
+                                        <option value="50">50</option>
+                                        <option value="100">100</option>
+                                    </select>
+                                </label>
+                                <button class="btn btn-sm btn-outline" id="fPrev" onclick="filesPrevPage()">
+                                    <i class="fas fa-chevron-left"></i>
+                                </button>
+                                <span id="filesPageInfo" class="pagination-info"></span>
+                                <button class="btn btn-sm btn-outline" id="fNext" onclick="filesNextPage()">
+                                    <i class="fas fa-chevron-right"></i>
+                                </button>
+                            </div>
                         </div>
                     </div>
                 </div>
